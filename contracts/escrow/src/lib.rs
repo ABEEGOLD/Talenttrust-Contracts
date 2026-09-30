@@ -659,10 +659,12 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract.funded_amount
-            - contract.released_amount
-            - contract.refunded_amount
-            - accumulated_fees;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         if available_balance < total_gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -674,7 +676,14 @@ impl Escrow {
             0
         };
 
-        // Pass 2: Atomic Execution
+        // Pass 2: Atomic state mutation (Checks-Effects-Interactions).
+        //
+        // All contract state is finalized *before* any token transfer is
+        // issued.  A malicious or reentrant token contract therefore observes
+        // the already-mutated escrow state and cannot double-spend or replay
+        // the batch.  Transfers are collected into a per-item plan and
+        // executed only after the full state write completes.
+        let mut transfer_plan: Vec<(u32, i128, i128, i128)> = Vec::new(&env);
         for i in 0..batch_len {
             let milestone_index = milestone_indices.get(i).unwrap();
             let mut milestone = milestones.get(milestone_index).unwrap();
@@ -686,24 +695,14 @@ impl Escrow {
                 0
             };
 
-            let net_amount = gross_amount - protocol_fee;
-
-            if let Some(token) = Self::read_settlement_token(&env) {
-                let token_client = token::Client::new(&env, &token);
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &contract.freelancer,
-                    &net_amount,
-                );
-            }
+            let net_amount = gross_amount
+                .checked_sub(protocol_fee)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
             if protocol_fee > 0 {
                 accumulated_fees = accumulated_fees
                     .checked_add(protocol_fee)
                     .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::AccumulatedProtocolFees, &accumulated_fees);
             }
 
             milestone.released = true;
@@ -715,25 +714,24 @@ impl Escrow {
                 .checked_add(net_amount)
                 .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
-            let invariant_sum =
-                contract.released_amount + contract.refunded_amount + accumulated_fees;
+            let invariant_sum = contract
+                .released_amount
+                .checked_add(contract.refunded_amount)
+                .and_then(|v| v.checked_add(accumulated_fees))
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
             if invariant_sum > contract.funded_amount {
                 env.panic_with_error(EscrowError::AccountingInvariantViolated);
             }
 
             approvals::clear_approvals(&env, contract_id, milestone_index);
 
-            env.events().publish(
-                (symbol_short!("mlstn_rls"), contract_id),
-                (
-                    milestone_index,
-                    gross_amount,
-                    protocol_fee,
-                    contract.released_amount,
-                    caller.clone(),
-                    env.ledger().timestamp(),
-                ),
-            );
+            transfer_plan.push_back((milestone_index, gross_amount, protocol_fee, net_amount));
+        }
+
+        if accumulated_fees > 0 {
+            env.storage()
+                .persistent()
+                .set(&DataKey::AccumulatedProtocolFees, &accumulated_fees);
         }
 
         let all_released = milestones.iter().all(|m| m.released || m.refunded);
@@ -753,6 +751,34 @@ impl Escrow {
             env.events().publish(
                 (symbol_short!("ctrct_cmp"), contract_id),
                 (caller, env.ledger().timestamp()),
+            );
+        }
+
+        // Interactions: emit events and execute transfers only after all
+        // state writes above have completed successfully.
+        let token = Self::read_settlement_token(&env)
+            .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
+        let token_client = token::Client::new(&env, &token);
+        for i in 0..transfer_plan.len() {
+            let (milestone_index, gross_amount, protocol_fee, net_amount) =
+                transfer_plan.get(i).unwrap();
+
+            env.events().publish(
+                (symbol_short!("mlstn_rls"), contract_id),
+                (
+                    milestone_index,
+                    gross_amount,
+                    protocol_fee,
+                    contract.released_amount,
+                    caller.clone(),
+                    env.ledger().timestamp(),
+                ),
+            );
+
+            token_client.transfer(
+                &env.current_contract_address(),
+                &contract.freelancer,
+                &net_amount,
             );
         }
 
@@ -1353,12 +1379,17 @@ impl Escrow {
             }
             // If no deadline (None), allow refund anytime (backward compatibility)
 
-            total_refund_amount += milestone.amount;
+            total_refund_amount = total_refund_amount
+                .checked_add(milestone.amount)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         }
 
         // Check if there's enough balance
-        let available_balance =
-            contract.funded_amount - contract.released_amount - contract.refunded_amount;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         if available_balance < total_refund_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
         }
