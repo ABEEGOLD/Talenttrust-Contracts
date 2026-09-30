@@ -3199,3 +3199,8 @@ impl Escrow {
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
+
+// Kept as a top-level test module because it verifies the public storage
+// migration boundary, including raw legacy/corrupt on-ledger markers.
+#[cfg(test)]
+mod migration_test;
