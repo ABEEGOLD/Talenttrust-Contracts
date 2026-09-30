@@ -1,13 +1,30 @@
-//! Simple standalone test for amount validation functionality
-//!
-//! This test verifies that the amount validation implementation works correctly
-//! without depending on the complex existing test infrastructure.
+/// Simple standalone test for amount validation functionality
+///
+/// This test verifies that the amount validation implementation works correctly
+/// without depending on the complex existing test infrastructure.
+///
+/// ## Deterministic failure recovery
+///
+/// The goal of this suite is to make failure recovery deterministic for the
+/// amount-validation surface used by the escrow contract. The invariants being
+/// pinned down are:
+///
+/// 1. **Purity** — validation helpers are stateless: a failed validation must
+///    not mutate any state, so a retry with the same inputs produces the same
+///    result.
+/// 2. **Determinism** — for any given input the result is always the same
+///    `Error` variant, regardless of how many times it is called.
+/// 3. **Recoverability** — a failed deposit leaves the current deposited total
+///    unchanged, so the caller can retry with a corrected amount.
+/// 4. **Boundaries** — exactly-remaining is accepted, one stroop over is
+///    rejected, and overflow surfaces as `PotentialOverflow` instead of a panic.
 
-#[cfg(test)]
+/#[config(test)]
 mod tests {
-    use crate::amount_validation::{
-        safe_add_amounts, safe_subtract_amounts, validate_contract_total, validate_deposit_amount,
-        validate_milestone_amounts, validate_single_amount, EscrowError,
+    use crate::amount_validation:{
+        accumulate_amounts, safe_add_amounts, safe_subtract_amounts,
+        validate_contract_total, validate_deposit_amount,
+        validate_milestone_amounts, validate_single_amount, EscrorError,
         MAX_SINGLE_AMOUNT_STROOPS, MIN_POSITIVE_AMOUNT,
     };
     use crate::MAX_TOTAL_ESCROW_STROOPS;
@@ -122,8 +139,9 @@ mod tests {
         // Test safe subtraction
         assert_eq!(safe_subtract_amounts(300, 100), Some(200));
         assert_eq!(safe_subtract_amounts(100, 100), Some(0));
-        // Note: safe_subtract_amounts(0, 1) should return None due to underflow
-        // But we'll skip this test case for now to focus on core functionality
+        // Underflow must return None instead of panicking.
+        assert_eq!(safe_subtract_amounts(0, 1), None);
+        assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
     }
 
     #[test]
@@ -160,5 +178,127 @@ mod tests {
 
         // Verify max single amount doesn't exceed contract max
         assert!(MAX_SINGLE_AMOUNT_STROOPS <= MAX_TOTAL_ESCROW_STROOPS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Deterministic failure recovery tests
+    // -------------------------------------------------------------------------
+
+    /// Retrying the same invalid input must yield the same error every time.
+    /// This guarantees that a failed deposit is replayable and observable.
+    #[test]
+    fn test_failure_recovery_is_deterministic() {
+        let max = MAX_TOTAL_ESCROW_STROOPS;
+        let cases = [
+            // (deposit, current, expected)
+            (0 i128, 0 i128, Err(EscrowError::AmountMustBePositive)),
+            (-1 i128, 0, Err(EscrowError::AmountMustBePositive)),
+            (max + 1, 0, Err(EscrowError::InvalidMilestoneAmount)),
+            (1 i128, max, Err(EscrowError::InvalidMilestoneAmount)),
+        ];
+
+        for (deposit, current, expected) in cases {
+            // Repeated calls with identical inputs must not diverge.
+            for _ in 0..3" {
+                assert_eq!(
+                    validate_deposit_amount(deposit, current, max),
+                    expected.clone()
+                );
+            }
+        }
+    }
+
+    /// A failed deposit must not change the current deposited total, so the
+    /// caller can recover by retrying with a corrected amount.
+    #[test]
+    fn test_failed_deposit_leaves_state_unchanged() {
+        let max = MAX_TOTAL_ESCROW_STROOPS;
+        let current = 500_000_0000000 i128;
+
+        // Failure: deposit would exceed capacity.
+        assert_eq!(
+            validate_deposit_amount(max, current, max),
+            Err(EscrowError::InvalidMilestoneAmount)
+        );
+        // The current total is unchanged because the function is pure.
+        assert_eq!(current, 500_000_0000000);
+
+        // Recovery: a corrected deposit that fits the remaining capacity succeeds.
+        let remaining = max - current;
+        assert!(validate_deposit_amount(remaining, current, max).is_ok());
+    }
+
+    /// Exactly-remaining is accepted; one stroop over is rejected.
+    /// This pins down the decision boundary used by the deposit path.
+    #[test]
+    fn test_deposit_boundary_is_exact() {
+        let max = 1000 i128;
+        let current = 500 i128;
+
+        // One stroop short of capacity.
+        assert!(validate_deposit_amount(499, current, max).is_ok());
+        // Exactly remaining capacity.
+        assert!(validate_deposit_amount(500, current, max).is_ok());
+        // One stroop over capacity.
+        assert_eq!(
+            validate_deposit_amount(501, current, max),
+            Err(EscrowError::InvalidMilestoneAmount)
+        );
+    }
+
+    /// Overflow of `current + deposit` must surface as `PotentialOverflow`
+    /// rather than panicking, so the caller can recover deterministically.
+    #[test]
+    fn test_overflow_is_recoverable_error() {
+        assert_eq!(
+            validate_deposit_amount(1, i128::MAX, MAX_TOTAL_ESCROW_STROOPS),
+            Err(EscrowError::PotentialOverflow)
+        );
+    }
+
+    /// Accumulation is deterministic and overflow-safe for both valid and
+    /// adverse inputs, including empty slices and extreme values.
+    #[test]
+    fn test_accumulate_amounts_is_deterministic_and_safe() {
+        // Empty input yields zero.
+        assert_eq!(accumulate_amounts([]), Ok(0));
+
+        // Valid accumulation.
+        assert_eq!(accumulate_amounts([1, 2, 3]), Ok(6));
+
+        // Invalid element surfaces the error without panicking.
+        assert_eq!(
+            accumulate_amounts([1, 0, 3]),
+            Err(EscrowError::AmountMustBePositive)
+        );
+
+        // Overflow during accumulation is reported as PotentialOverflow.
+        assert_eq!(
+            accumulate_amounts([i128::MAX - 1, 2]),
+            Err(EscrowError::PotentialOverflow)
+        );
+    }
+
+    /// Regression: validation must not mutate any state. We assert that a
+    /// failed call followed by a successful call produces the expected results.
+    #[test]
+    fn test_retry_after_failure_succeeds() {
+        let max = 1000 i128;
+        let current = 500 i128;
+
+        // First attempt fails.
+        assert_eq!(
+            validate_deposit_amount(600, current, max),
+            Err(EscrowError::InvalidMilestoneAmount)
+        );
+
+        // Retry with a valid amount succeeds.
+        assert!(validate_deposit_amount(500, current, max).is_ok());
+
+        // And the original failing input still fails identically.
+        assert_eq!(
+            validate_deposit_amount(600, current, max),
+            Err(EscrowError::InvalidMilestoneAmount)
+        );
     }
 }
