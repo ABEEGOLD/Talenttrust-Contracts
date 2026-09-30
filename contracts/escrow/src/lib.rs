@@ -315,6 +315,11 @@ impl Escrow {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
 
+        // Validation boundary: reject non-positive and out-of-range amounts
+        // before any storage read or token interaction so invalid input cannot
+        // mutate state or reach the SAC transfer path.
+        amount_validation::validate_deposit_amount(&env, amount);
+
         let validated = deposit::validate_deposit(&env, contract_id, &caller, amount);
 
         let token = Self::read_settlement_token(&env)
@@ -659,10 +664,15 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract.funded_amount
-            - contract.released_amount
-            - contract.refunded_amount
-            - accumulated_fees;
+        // Validation boundary: use checked arithmetic so an inconsistent
+        // accounting state surfaces as PotentialOverflow instead of silently
+        // wrapping into a large positive balance that would allow over-release.
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         if available_balance < total_gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);

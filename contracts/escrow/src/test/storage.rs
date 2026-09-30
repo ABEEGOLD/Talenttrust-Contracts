@@ -618,3 +618,102 @@ fn storage_entrypoints_boundary_contract_id_valid() {
     );
 }
 
+#[test]
+fn storage_entrypoints_reject_zero_milestone_index_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let (client_addr, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &client_addr, &total_milestone_amount());
+
+    // Index 0 is the minimum valid milestone index and must succeed.
+    let m = client
+        .get_milestone(&id, &0u32)
+        .expect("index 0 is in bounds");
+    assert_eq!(m.amount, MILESTONE_ONE);
+
+    // One past the last valid index must return None, not panic.
+    let len = client.get_milestones(&id).len();
+    assert!(client.get_milestone(&id, &len).is_none());
+
+    // u32::MAX is far out of bounds and must also return None.
+    assert!(client.get_milestone(&id, &u32::MAX).is_none());
+}
+
+#[test]
+fn storage_entrypoints_reject_zero_deposit_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let (client_addr, _, id) = create_contract(&env, &client);
+
+    // A zero deposit is below the exact-deposit boundary and must be rejected.
+    assert_contract_error(
+        client.try_deposit_funds(&id, &client_addr, &0),
+        EscrowError::ExactDepositRequired,
+    );
+}
+
+#[test]
+fn storage_entrypoints_duplicate_deposit_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let (client_addr, _, id) = create_contract(&env, &client);
+    client.deposit_funds(&id, &client_addr, &total_milestone_amount());
+
+    // A second deposit for the same contract must not silently overwrite state.
+    assert_contract_error(
+        client.try_deposit_funds(&id, &client_addr, &total_milestone_amount()),
+        EscrowError::ExactDepositRequired,
+    );
+}
+
+#[test]
+fn storage_entrypoints_unknown_contract_id_returns_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // An unallocated but in-range id must be reported as ContractNotFound.
+    assert_contract_error(client.try_get_contract(&7u32), EscrowError::ContractNotFound);
+    assert_contract_error(
+        client.try_get_milestones(&7u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestone(&7u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_refundable_balance(&7u32),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
+fn storage_entrypoints_duplicate_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin);
+    // Re-initialization must not overwrite the persisted admin or flags.
+    assert_contract_error(
+        client.try_initialize(&admin),
+        EscrowError::AlreadyInitialized,
+    );
+}
+
