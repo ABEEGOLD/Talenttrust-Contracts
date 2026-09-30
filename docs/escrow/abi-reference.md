@@ -300,8 +300,8 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Mutating
 - Auth: `caller.require_auth()`
 - Semantics: Issues reputation for a completed contract once. Updates the freelancer's aggregate reputation record and stores the provided comment.
-- Events: None in the current implementation
-- Errors: `ContractNotFound`, `UnauthorizedRole`, `InvalidRating`, `EmptyComment`, `CommentTooLong`, `NotCompleted`, `ReputationAlreadyIssued`, `SelfRating`, `InvalidState`
+- Events: `rep_issd`; topics `(rep_issd, contract_id)`, data `(freelancer, rating, timestamp)`. Emitted once after successful issuance; rejected calls emit no issuance event.
+- Errors: `ContractNotFound`, `UnauthorizedRole`, `InvalidRating`, `EmptyComment`, `CommentTooLong`, `NotCompleted`, `ReputationAlreadyIssued`, `SelfRating`, `InvalidState`, `PotentialOverflow`
 
 ### get_reputation_comment
 

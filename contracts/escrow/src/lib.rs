@@ -1140,9 +1140,7 @@ impl Escrow {
     // completed contract and are consumed one at a time by `issue_reputation`.
     // A `Refunded` contract never calls this helper and therefore earns no credit.
     pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
-        let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
-        let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-        env.storage().persistent().set(&pending_key, &(pending + 1));
+        reputation::grant_pending_reputation_credit(env, freelancer);
     }
 
     /// Releases a specific milestone, transferring the net payout to the freelancer.
@@ -1554,7 +1552,8 @@ impl Escrow {
             .storage()
             .persistent()
             .get::<_, bool>(&DataKey::ReputationIssued(contract_id))
-            .unwrap_or(contract.reputation_issued);
+            .unwrap_or(false)
+            || contract.reputation_issued;
 
         let refundable_balance =
             contract.funded_amount - contract.released_amount - contract.refunded_amount;
@@ -2221,109 +2220,7 @@ impl Escrow {
         rating: u32,
         comment: String,
     ) -> bool {
-        Self::require_not_paused(&env);
-        let mut contract: Contract = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        if caller != contract.client {
-            env.panic_with_error(Error::UnauthorizedRole);
-        }
-
-        let reputation_config = Self::get_reputation_config(env.clone());
-
-        if rating < reputation_config.min_rating || rating > reputation_config.max_rating {
-            env.panic_with_error(Error::InvalidRating);
-        }
-
-        if comment.len() == 0 {
-            env.panic_with_error(Error::EmptyComment);
-        }
-
-        if comment.len() > reputation_config.max_comment_bytes {
-            env.panic_with_error(Error::CommentTooLong);
-        }
-
-        if contract.status != ContractStatus::Completed {
-            env.panic_with_error(Error::NotCompleted);
-        }
-
-        if contract.reputation_issued {
-            env.panic_with_error(Error::ReputationAlreadyIssued);
-        }
-        if contract.client == contract.freelancer {
-            env.panic_with_error(Error::UnauthorizedRole);
-        }
-
-        caller.require_auth();
-        contract.reputation_issued = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-        env.storage()
-            .persistent()
-            .set(&DataKey::ReputationIssued(contract_id), &true);
-        env.storage().persistent().extend_ttl(
-            &DataKey::ReputationIssued(contract_id),
-            ttl::PERSISTENT_BUMP_THRESHOLD,
-            ttl::PERSISTENT_TTL_LEDGERS,
-        );
-
-        let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
-        let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-        if pending <= 0 {
-            env.panic_with_error(Error::NotCompleted);
-        }
-        let new_pending = pending
-            .checked_sub(1)
-            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-        env.storage().persistent().set(&pending_key, &new_pending);
-
-        let rep_key = DataKey::Reputation(contract.freelancer.clone());
-        let mut rep: types::Reputation =
-            env.storage().persistent().get(&rep_key).unwrap_or_default();
-        let first_write = rep.completed_contracts == 0;
-        rep.completed_contracts += 1;
-        rep.total_rating += rating as i128;
-        rep.last_rating = rating as i128;
-        env.storage().persistent().set(&rep_key, &rep);
-
-        // If this is the first reputation record for this address, append it to the
-        // reputations index for enumerations.
-        if first_write {
-            let mut idx: Vec<Address> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::ReputationIndex)
-                .unwrap_or_else(|| Vec::new(&env));
-            idx.push_back(contract.freelancer.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::ReputationIndex, &idx);
-        }
-
-        let comment_key = DataKey::ReputationComment(contract_id);
-        env.storage().persistent().set(&comment_key, &comment);
-        env.storage().persistent().extend_ttl(
-            &comment_key,
-            ttl::PERSISTENT_BUMP_THRESHOLD,
-            ttl::PERSISTENT_TTL_LEDGERS,
-        );
-
-        // 🔔 NEW EVENT: Emit reputation issued event after all state updates.
-        env.events().publish(
-            (symbol_short!("rep_issd"), contract_id),
-            (
-                contract.freelancer.clone(),
-                rating,
-                env.ledger().timestamp(),
-            ),
-        );
-
-        true
+        reputation::issue_reputation(&env, contract_id, caller, rating, comment)
     }
 
     // Returns the written feedback provided by the client when reputation was issued.

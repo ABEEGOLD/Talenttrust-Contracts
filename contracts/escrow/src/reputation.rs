@@ -2,7 +2,7 @@ use crate::types::ReputationConfig;
 use crate::{
     ttl, types, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, PAGE_CEILING,
 };
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk::{symbol_short, Address, Env, String, Symbol, Vec};
 
 pub(crate) fn get_reputation_config(env: &Env) -> ReputationConfig {
     env.storage()
@@ -117,7 +117,14 @@ pub(crate) fn issue_reputation(
         env.panic_with_error(Error::NotCompleted);
     }
 
-    if contract.reputation_issued {
+    // Upgrades may retain either issuance marker. Neither may be cleared or
+    // ignored to make a previously rated contract eligible for another credit.
+    let issued = env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::ReputationIssued(contract_id))
+        .unwrap_or(false);
+    if contract.reputation_issued || issued {
         env.panic_with_error(Error::ReputationAlreadyIssued);
     }
     if contract.client == contract.freelancer {
@@ -125,6 +132,32 @@ pub(crate) fn issue_reputation(
     }
 
     caller.require_auth();
+    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    if pending <= 0 {
+        env.panic_with_error(Error::NotCompleted);
+    }
+    let new_pending = pending
+        .checked_sub(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    let rep_key = DataKey::Reputation(contract.freelancer.clone());
+    let mut rep: types::Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+    let first_write = rep.completed_contracts == 0;
+    if rep.completed_contracts < 0 || rep.total_rating < 0 || rep.last_rating < 0 {
+        env.panic_with_error(Error::InvalidState);
+    }
+    rep.completed_contracts = rep
+        .completed_contracts
+        .checked_add(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    rep.total_rating = rep
+        .total_rating
+        .checked_add(rating as i128)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    rep.last_rating = rating as i128;
+
+    // Validate and authorize before writing. Soroban atomically rolls back all
+    // these writes on host failure; retries cannot consume another credit.
     contract.reputation_issued = true;
     env.storage()
         .persistent()
@@ -137,23 +170,7 @@ pub(crate) fn issue_reputation(
         ttl::PERSISTENT_BUMP_THRESHOLD,
         ttl::PERSISTENT_TTL_LEDGERS,
     );
-
-    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
-    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    if pending <= 0 {
-        env.panic_with_error(Error::NotCompleted);
-    }
-    let new_pending = pending
-        .checked_sub(1)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     env.storage().persistent().set(&pending_key, &new_pending);
-
-    let rep_key = DataKey::Reputation(contract.freelancer.clone());
-    let mut rep: types::Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
-    let first_write = rep.completed_contracts == 0;
-    rep.completed_contracts += 1;
-    rep.total_rating += rating as i128;
-    rep.last_rating = rating as i128;
     env.storage().persistent().set(&rep_key, &rep);
 
     if first_write {
@@ -174,6 +191,13 @@ pub(crate) fn issue_reputation(
         &comment_key,
         ttl::PERSISTENT_BUMP_THRESHOLD,
         ttl::PERSISTENT_TTL_LEDGERS,
+    );
+
+    // Preserve the deployed event contract for existing indexers. Emission
+    // follows successful writes, so rejected/replayed issuance emits nothing.
+    env.events().publish(
+        (symbol_short!("rep_issd"), contract_id),
+        (contract.freelancer, rating, env.ledger().timestamp()),
     );
 
     true
@@ -266,5 +290,11 @@ pub(crate) fn get_reputations_page(
 pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
     let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
     let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    env.storage().persistent().set(&pending_key, &(pending + 1));
+    if pending < 0 {
+        env.panic_with_error(Error::InvalidState);
+    }
+    let next = pending
+        .checked_add(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    env.storage().persistent().set(&pending_key, &next);
 }
