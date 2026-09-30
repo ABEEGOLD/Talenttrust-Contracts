@@ -2,7 +2,7 @@ use crate::{
     accumulate_amounts, amount_validation::validate_single_amount, keys, ttl, Contract,
     ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{token, Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
@@ -17,14 +17,6 @@ pub struct ValidatedDeposit {
 /// This preflight must run before the SAC transfer in `deposit_funds` so an
 /// invalid deposit cannot debit the client and then fail during escrow state
 /// validation.
-///
-/// # Security
-///
-/// Uses `validate_single_amount` to enforce centralized bounds for all
-/// money-like values in the escrow contract. This ensures that:
-///
-/// - The deposit amount is strictly positive (minimum 1 stroop).
-/// - The deposit amount does not exceed `MAX_SINGLE_AMOUNT_STROOPS` (1M tokens).
 pub fn validate_deposit(
     env: &Env,
     contract_id: u32,
@@ -93,32 +85,37 @@ pub fn validate_deposit(
     }
 }
 
-/// Deposits funds into the contract. Transitions to Funded status when fully funded.
+/// Deposits funds into the contract deterministically.
 ///
-/// # Arguments
-/// * `env` - The contract environment
-/// * `contract_id` - The contract ID
-/// * `caller` - The address of the caller (must be the client)
-/// * `amount` - The amount to deposit (in stroops)
-///
-/// # Returns
-/// `true` if deposit was successful
-///
-/// # Errors
-/// * `AmountMustBePositive` - If amount is <= 0
-/// * `ContractNotFound` - If contract doesn't exist
-/// * `InvalidState` - If contract is not in Created state
-/// * `UnauthorizedRole` - If caller is not the client
+/// Enforces the fail-closed invariant: token transfer from client happens
+/// AFTER preflight validation and BEFORE state mutation. If the token transfer fails,
+/// storage and accounting remain completely untouched.
 pub fn deposit_funds_impl(env: &Env, contract_id: u32, caller: Address, amount: i128) -> bool {
+    // 1. Preflight validation (fail-fast, read-only)
     let validated = validate_deposit(env, contract_id, &caller, amount);
-    apply_validated_deposit(env, contract_id, caller, validated)
+
+    // 2. Authorize caller before token movement
+    caller.require_auth();
+
+    // 3. Pull tokens from client via Stellar Asset Contract (SAC) BEFORE updating ledger state.
+    // This ensures a failed transfer (e.g. insufficient funds) leaves contract accounting untouched.
+    let settlement_token: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementToken)
+        .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
+
+    let token_client = token::Client::new(env, &settlement_token);
+    token_client.transfer(&caller, &env.current_contract_address(), &amount);
+
+    // 4. Apply state changes only after successful token transfer
+    apply_validated_deposit_committed(env, contract_id, validated)
 }
 
-/// Apply a deposit after the caller has been validated and the token transfer succeeded.
-pub fn apply_validated_deposit(
+/// Apply a deposit to storage once validation and token transfers have successfully completed.
+pub fn apply_validated_deposit_committed(
     env: &Env,
     contract_id: u32,
-    caller: Address,
     validated: ValidatedDeposit,
 ) -> bool {
     let ValidatedDeposit {
@@ -128,14 +125,12 @@ pub fn apply_validated_deposit(
         total_amount,
     } = validated;
 
-    ttl::extend_contract_ttl(&env, contract_id);
-
-    caller.require_auth();
+    ttl::extend_contract_ttl(env, contract_id);
 
     contract.funded_amount = new_funded_amount;
     contract.total_deposited = new_total_deposited;
 
-    ttl::extend_milestone_ttl(&env, contract_id);
+    ttl::extend_milestone_ttl(env, contract_id);
 
     if contract.funded_amount == total_amount {
         contract.status = ContractStatus::Funded;
@@ -147,7 +142,7 @@ pub fn apply_validated_deposit(
         .persistent()
         .set(&DataKey::Contract(contract_id), &contract);
 
-    ttl::extend_contract_ttl(&env, contract_id);
+    ttl::extend_contract_ttl(env, contract_id);
 
     true
 }
