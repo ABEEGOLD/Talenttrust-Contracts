@@ -7,6 +7,13 @@
 //!
 //! All functions are pure (no side-effects) and intended to be called at the
 //! top of the corresponding entrypoint, before any state mutation occurs.
+//!
+//! # State invariants
+//!
+//! Every validator in this module is a pure predicate over its inputs and
+//! MUST be invoked before any storage write in the corresponding entrypoint.
+//! Rejections panic with a typed error and leave storage untouched, so a
+//! failed validation can never leave a partially-mutated state behind.
 
 use crate::milestones_consts::{
     MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING,
@@ -27,6 +34,10 @@ use soroban_sdk::Env;
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
 /// of range.
+///
+/// # Invariants
+/// * The stored cap is strictly positive, so `total_escrowed <= cap` remains
+///   satisfiable for any non-negative escrow total.
 pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i128) {
     if max_escrow_total_stroops <= 0 {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -42,6 +53,12 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
+///
+/// # Invariants
+/// * `MIN_RATING <= min_rating <= max_rating <= MAX_REPUTATION_CONFIG_RATING_CEILING`,
+///   so the accepted rating window is never empty and never exceeds the
+///   protocol ceiling.
+/// * `MIN_COMMENT_BYTES <= max_comment_bytes <= MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`.
 pub(crate) fn validate_reputation_config_params(
     env: &Env,
     min_rating: u32,
@@ -70,6 +87,10 @@ pub(crate) fn validate_reputation_config_params(
 /// # Panics
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
 /// [`EscrowError::TooManyMilestones`] when `count > MAX_MILESTONES`.
+///
+/// # Invariants
+/// * `1 <= count <= MAX_MILESTONES`, so downstream milestone indexing is
+///   always in-bounds and the empty-milestones state is unreachable.
 pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
     if count == 0 {
         env.panic_with_error(EscrowError::EmptyMilestones);
@@ -86,6 +107,10 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
+///
+/// # Invariants
+/// * `bps <= MAX_FEE_BPS`, so fee arithmetic cannot exceed the total amount
+///   and the payout invariant `net + fee == gross` holds.
 pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
     if bps > MAX_FEE_BPS {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -100,6 +125,10 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// # Panics
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
 /// [`EscrowError::InvalidMilestoneAmount`] when the amount exceeds the cap.
+///
+/// # Invariants
+/// * `0 < amount <= MAX_SINGLE_AMOUNT_STROOPS`, so no zero-value or
+///   overflow-prone amount can be persisted.
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         env.panic_with_error(crate::EscrowError::AmountMustBePositive);
