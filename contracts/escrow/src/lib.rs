@@ -110,6 +110,10 @@ pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub use constants::PAGE_CEILING;
+pub use constants::{
+    DEFAULT_MAX_BATCH_SETTLEMENT, MAX_BATCH_MILESTONES, MAX_BATCH_SETTLEMENT, MAX_FEE_BPS,
+    MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
+};
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
     DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
@@ -135,18 +139,6 @@ pub use types::{
     PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
     SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
-
-// Maximum bounds constants - re-export from amount_validation for API visibility
-pub const MAX_MILESTONES: u32 = 10;
-pub const MAX_BATCH_MILESTONES: u32 = 10;
-pub const MAX_FEE_BPS: u32 = 10_000;
-pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
-
-// Default maximum number of contracts finalizable in a single batch settlement call.
-pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
-
-// Backward-compatible alias for the default max batch settlement.
-pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
 
 #[contract]
 pub struct Escrow;
