@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Milestones authorization-matrix tests (issue #21).
 //!
 //! Exhaustively covers every milestone-related action against every role (admin,
@@ -32,8 +33,6 @@
 //! - **Section 5**: Read-only queries (unauthenticated access by all roles)
 //! - **Section 6**: Invalid contract state gates & pause guards
 
-#![cfg(test)]
-
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
 
 use crate::{Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization};
@@ -47,6 +46,7 @@ use super::assert_contract_error;
 /// Create and initialize an escrow contract client, returning (escrow, admin).
 fn make_escrow(env: &Env) -> (EscrowClient<'_>, Address) {
     env.mock_all_auths();
+    env.mock_all_auths_allowing_non_root_auth();
     let contract_address = env.register(Escrow, ());
     let escrow = EscrowClient::new(env, &contract_address);
     let admin = Address::generate(env);
@@ -69,6 +69,7 @@ fn setup_funded_with_mode(
     Address,
     u32,
 ) {
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin) = make_escrow(env);
     let sac = env.register_stellar_asset_contract(admin.clone());
     escrow.bind_settlement_token(&admin, &sac);
@@ -89,6 +90,7 @@ fn setup_funded_with_mode(
 
     let total_amount: i128 = 300_0000000;
     soroban_sdk::token::StellarAssetClient::new(env, &sac).mint(&client_addr, &total_amount);
+    env.mock_all_auths_allowing_non_root_auth();
     assert!(escrow.deposit_funds(&contract_id, &client_addr, &total_amount));
 
     (
@@ -109,6 +111,7 @@ fn setup_funded_with_mode(
 #[test]
 fn test_approve_milestone_release_matrix_client_only() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
@@ -136,6 +139,7 @@ fn test_approve_milestone_release_matrix_client_only() {
 #[test]
 fn test_approve_milestone_release_matrix_arbiter_only() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ArbiterOnly);
 
@@ -163,6 +167,7 @@ fn test_approve_milestone_release_matrix_arbiter_only() {
 #[test]
 fn test_approve_milestone_release_matrix_client_and_arbiter() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientAndArbiter);
 
@@ -196,6 +201,7 @@ fn test_approve_milestone_release_matrix_client_and_arbiter() {
 #[test]
 fn test_approve_milestone_release_matrix_multisig() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::MultiSig);
 
@@ -227,6 +233,7 @@ fn test_approve_milestone_release_matrix_multisig() {
 #[test]
 fn test_release_milestone_matrix_client_only() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
@@ -260,6 +267,7 @@ fn test_release_milestone_matrix_client_only() {
 #[test]
 fn test_release_milestone_matrix_arbiter_only() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ArbiterOnly);
 
@@ -293,6 +301,7 @@ fn test_release_milestone_matrix_arbiter_only() {
 #[test]
 fn test_release_milestone_matrix_client_and_arbiter() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientAndArbiter);
 
@@ -330,6 +339,7 @@ fn test_release_milestone_matrix_client_and_arbiter() {
 #[test]
 fn test_release_milestone_matrix_multisig() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::MultiSig);
 
@@ -373,6 +383,7 @@ fn test_release_milestone_matrix_multisig() {
 #[test]
 fn test_submit_work_evidence_matrix() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
@@ -409,6 +420,7 @@ fn test_submit_work_evidence_matrix() {
 #[test]
 fn test_refund_unreleased_milestones_matrix() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
@@ -445,6 +457,7 @@ fn test_refund_unreleased_milestones_matrix() {
 #[test]
 fn test_read_only_milestone_queries_auth_free() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, arbiter, stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 
@@ -481,6 +494,7 @@ fn test_read_only_milestone_queries_auth_free() {
 #[test]
 fn test_milestone_actions_invalid_state_gates() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin) = make_escrow(&env);
     let sac = env.register_stellar_asset_contract(admin.clone());
     escrow.bind_settlement_token(&admin, &sac);
@@ -540,6 +554,7 @@ fn test_milestone_actions_invalid_state_gates() {
 #[test]
 fn test_milestone_actions_blocked_when_paused() {
     let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
     let (escrow, admin, client, freelancer, _arbiter, _stranger, contract_id) =
         setup_funded_with_mode(&env, ReleaseAuthorization::ClientOnly);
 

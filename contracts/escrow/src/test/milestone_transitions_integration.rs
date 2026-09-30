@@ -13,6 +13,9 @@
 /// - Backward transition: reversed status changes are correctly rejected
 /// - Concurrent transitions: two racing transitions are handled correctly with versioning
 /// - Unknown status: invalid state combinations are rejected safely
+use crate::milestone_transitions::{
+    check_version_for_concurrency, read_milestone_version_and_actor, store_milestone_transition,
+};
 use crate::{
     milestone_transitions::{validate_milestone_transition, MilestoneState},
     Address, Contract, ContractStatus, Env, Escrow, Milestone, ReleaseAuthorization,
@@ -20,6 +23,7 @@ use crate::{
 use soroban_sdk::{testutils::Address as _, Vec};
 
 // ── Test Fixtures ────────────────────────────────────────────────────────────
+
 
 /// Create a basic test contract with given status and release authorization
 fn make_test_contract(
@@ -44,6 +48,7 @@ fn make_test_contract(
     }
 }
 
+
 /// Create a test milestone in Pending state
 fn make_milestone_pending(amount: i128) -> Milestone {
     Milestone {
@@ -56,6 +61,7 @@ fn make_milestone_pending(amount: i128) -> Milestone {
         deadline: None,
     }
 }
+
 
 // ── Edge Case 1: Valid Transitions ───────────────────────────────────────────
 
@@ -77,6 +83,7 @@ fn test_release_milestone_valid_transition_pending_to_released() {
     );
 }
 
+
 #[test]
 fn test_refund_milestone_valid_transition_pending_to_refunded() {
     // Verify that a legitimate Pending -> Refunded transition succeeds
@@ -90,6 +97,7 @@ fn test_refund_milestone_valid_transition_pending_to_refunded() {
     );
 }
 
+
 // ── Edge Case 2: Same Status Repeated (Idempotent) ──────────────────────────
 
 #[test]
@@ -101,6 +109,7 @@ fn test_release_milestone_same_status_pending() {
     let result = validate_milestone_transition(current_state, requested_state);
     assert!(result.is_ok(), "Idempotent Pending->Pending should succeed");
 }
+
 
 #[test]
 fn test_release_milestone_same_status_released() {
@@ -115,6 +124,7 @@ fn test_release_milestone_same_status_released() {
     );
 }
 
+
 #[test]
 fn test_refund_milestone_same_status_refunded() {
     // Verify that transition to same Refunded status is idempotent
@@ -127,6 +137,7 @@ fn test_refund_milestone_same_status_refunded() {
         "Idempotent Refunded->Refunded should succeed"
     );
 }
+
 
 // ── Edge Case 3: Backward Transitions (Invalid) ──────────────────────────────
 
@@ -143,6 +154,7 @@ fn test_release_milestone_backward_released_to_pending() {
     );
 }
 
+
 #[test]
 fn test_release_milestone_backward_released_to_refunded() {
     // Verify that transition Released -> Refunded is rejected
@@ -152,6 +164,7 @@ fn test_release_milestone_backward_released_to_refunded() {
     let result = validate_milestone_transition(current_state, requested_state);
     assert!(result.is_err(), "Transition Released->Refunded should fail");
 }
+
 
 #[test]
 fn test_refund_milestone_backward_refunded_to_pending() {
@@ -166,6 +179,7 @@ fn test_refund_milestone_backward_refunded_to_pending() {
     );
 }
 
+
 #[test]
 fn test_refund_milestone_backward_refunded_to_released() {
     // Verify that transition Refunded -> Released is rejected
@@ -176,15 +190,12 @@ fn test_refund_milestone_backward_refunded_to_released() {
     assert!(result.is_err(), "Transition Refunded->Released should fail");
 }
 
+
 // ── Edge Case 4: Concurrent Transitions ──────────────────────────────────────
 
 #[test]
 fn test_concurrent_transitions_version_check() {
     // Verify that version checking detects concurrent modifications
-    use crate::milestone_transitions::{
-        check_version_for_concurrency, read_milestone_version_and_actor, store_milestone_transition,
-    };
-
     let env = Env::default();
     let contract_id = 1u32;
     let milestone_index = 0u32;
@@ -221,6 +232,7 @@ fn test_concurrent_transitions_version_check() {
     );
 }
 
+
 // ── Edge Case 5: Unknown/Invalid Status ──────────────────────────────────────
 
 #[test]
@@ -238,6 +250,7 @@ fn test_milestone_state_both_flags_set_invalid() {
         "Invalid state with both flags set should be rejected"
     );
 }
+
 
 // ── Authorization Boundary Tests ────────────────────────────────────────────
 
@@ -271,6 +284,7 @@ fn test_release_milestone_client_only_authorization() {
     );
 }
 
+
 #[test]
 fn test_refund_milestone_client_only_authorization() {
     // Verify that only client can refund
@@ -284,6 +298,7 @@ fn test_refund_milestone_client_only_authorization() {
         "Transition should be valid; auth is separate concern"
     );
 }
+
 
 // ── Escrow Conservation Tests ────────────────────────────────────────────────
 
@@ -299,6 +314,7 @@ fn test_release_milestone_fund_amounts_unchanged() {
     assert_eq!(milestone.amount, milestone_amount);
     assert_eq!(milestone.funded_amount, milestone_amount);
 }
+
 
 // ── Error Consistency Tests ──────────────────────────────────────────────────
 
@@ -316,6 +332,7 @@ fn test_invalid_transition_error_stable() {
         "Invalid transitions should return stable InvalidStatusTransition error"
     );
 }
+
 
 #[test]
 fn test_all_backward_transitions_use_same_error() {
@@ -339,3 +356,4 @@ fn test_all_backward_transitions_use_same_error() {
         );
     }
 }
+

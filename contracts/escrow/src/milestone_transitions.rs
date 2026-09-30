@@ -313,6 +313,77 @@ mod tests {
     }
 
     #[test]
+    fn test_transition_pending_to_released_allowed() {
+        assert!(validate_milestone_transition(MilestoneState::Pending, MilestoneState::Released).is_ok());
+    }
+
+    #[test]
+    fn test_transition_pending_to_refunded_allowed() {
+        assert!(validate_milestone_transition(MilestoneState::Pending, MilestoneState::Refunded).is_ok());
+    }
+
+    #[test]
+    fn test_transition_released_to_refunded_rejected() {
+        assert_eq!(
+            validate_milestone_transition(MilestoneState::Released, MilestoneState::Refunded),
+            Err(Error::InvalidStatusTransition)
+        );
+    }
+
+    #[test]
+    fn test_transition_refunded_to_released_rejected() {
+        assert_eq!(
+            validate_milestone_transition(MilestoneState::Refunded, MilestoneState::Released),
+            Err(Error::InvalidStatusTransition)
+        );
+    }
+
+    #[test]
+    fn test_transition_idempotent_same_state() {
+        assert!(validate_milestone_transition(MilestoneState::Pending, MilestoneState::Pending).is_ok());
+        assert!(validate_milestone_transition(MilestoneState::Released, MilestoneState::Released).is_ok());
+        assert!(validate_milestone_transition(MilestoneState::Refunded, MilestoneState::Refunded).is_ok());
+    }
+
+    #[test]
+    fn test_version_starts_at_zero_and_increments() {
+        let env = Env::default();
+        let actor = Address::generate(&env);
+        let meta = read_milestone_version_and_actor(&env, 1, 0);
+        assert_eq!(meta.version, 0);
+        let v = store_milestone_transition(&env, 1, 0, actor.clone());
+        assert_eq!(v, 1);
+        let meta2 = read_milestone_version_and_actor(&env, 1, 0);
+        assert_eq!(meta2.version, 1);
+        assert_eq!(meta2.last_modified_by, actor);
+    }
+
+    #[test]
+    fn test_concurrency_check_detects_stale_version() {
+        let env = Env::default();
+        let actor = Address::generate(&env);
+        store_milestone_transition(&env, 2, 0, actor);
+        assert!(check_version_for_concurrency(&env, 2, 0, 1).is_ok());
+        assert_eq!(
+            check_version_for_concurrency(&env, 2, 0, 0),
+            Err(Error::InvalidStatusTransition)
+        );
+    }
+
+    #[test]
+    fn test_repeated_transitions_are_idempotent_and_monotonic() {
+        let env = Env::default();
+        let actor = Address::generate(&env);
+        let v1 = store_milestone_transition(&env, 3, 0, actor.clone());
+        let v2 = store_milestone_transition(&env, 3, 0, actor.clone());
+        let v3 = store_milestone_transition(&env, 3, 0, actor);
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 2);
+        assert_eq!(v3, 3);
+    }
+}
+
+    #[test]
     fn test_milestone_state_to_flags_pending() {
         let flags = MilestoneState::Pending.to_flags();
         assert_eq!(flags, (false, false));
