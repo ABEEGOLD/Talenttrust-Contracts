@@ -32,6 +32,7 @@
 //! - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
 //! - **Funded → Completed**: All milestones either released or refunded (mixed state)
 
+use crate::events::{emit_contract_indexed_event, emit_milestone_refunded_event};
 use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
 use soroban_sdk::{Env, Vec};
 
@@ -93,7 +94,7 @@ pub fn refund_unreleased_milestones(
         env.panic_with_error(EscrowError::ContractCancelled);
     }
     if contract.status == ContractStatus::Refunded {
-        env.panic_with_error(EscrowError::InvalidState);
+        env.panic_with_error(EscrowError::ContractRefunded);
     }
 
     // Load milestones
@@ -183,14 +184,14 @@ fn validate_and_calculate_refund(
     for idx in milestone_indices.iter() {
         // Guard: Check milestone exists
         if idx >= milestones.len() {
-            env.panic_with_error(EscrowError::IndexOutOfBounds);
+            env.panic_with_error(EscrowError::InvalidMilestone);
         }
 
         let milestone = milestones.get(idx).unwrap();
 
         // Guard: Cannot refund released milestones
         if milestone.released {
-            env.panic_with_error(EscrowError::MilestoneAlreadyReleased);
+            env.panic_with_error(EscrowError::AlreadyReleased);
         }
 
         // Guard: Cannot refund already-refunded milestones
@@ -269,5 +270,41 @@ mod tests {
         let env = Env::default();
         let indices = vec![&env, 0_u32, 1_u32, 1_u32];
         check_no_duplicates(&env, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidMilestone")]
+    fn test_validate_fails_for_invalid_milestone() {
+        let env = Env::default();
+        let milestones = vec![
+            &env,
+            Milestone { amount: 100, released: false, refunded: false, work_evidence: None },
+        ];
+        let indices = vec![&env, 1_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "AlreadyReleased")]
+    fn test_validate_fails_for_already_released() {
+        let env = Env::default();
+        let milestones = vec![
+            &env,
+            Milestone { amount: 100, released: true, refunded: false, work_evidence: None },
+        ];
+        let indices = vec![&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "AlreadyRefunded")]
+    fn test_validate_fails_for_already_refunded() {
+        let env = Env::default();
+        let milestones = vec![
+            &env,
+            Milestone { amount: 100, released: false, refunded: true, work_evidence: None },
+        ];
+        let indices = vec![&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
     }
 }
