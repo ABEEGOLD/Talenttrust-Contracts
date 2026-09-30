@@ -374,7 +374,11 @@ fn set_protocol_fee_bps_rejects_u32_max() {
     }
 }
 
-// ── contract_id = 0 rejection for migration entrypoints ───────────────────────
+// ── contract_id = 0 rejection for migration / rollback entrypoints ───────────
+//
+// These entrypoints call `storage::validate_contract_id_bounds`, the strict
+// entrypoint-preamble guard, so the reserved id is rejected as invalid *input*
+// with `InvalidContractId` — identical to every other mutating entrypoint.
 
 /// propose_client_migration with contract_id = 0 must be rejected.
 #[test]
@@ -395,10 +399,10 @@ fn propose_client_migration_rejects_zero_contract_id() {
     let result = escrow.try_propose_client_migration(&0_u32, &c, &new_client);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 
@@ -411,10 +415,10 @@ fn accept_client_migration_rejects_zero_contract_id() {
     let result = escrow.try_accept_client_migration(&0_u32, &new_client);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 
@@ -426,10 +430,10 @@ fn rollback_dispute_rejects_zero_contract_id() {
     let result = escrow.try_rollback_dispute(&0_u32);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 

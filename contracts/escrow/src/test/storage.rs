@@ -588,7 +588,7 @@ fn storage_entrypoints_reject_zero_contract_id() {
     );
     assert_contract_error(
         client.try_set_arbiter(&0u32, &admin, &None),
-        EscrowError::ContractNotFound,
+        EscrowError::InvalidContractId,
     );
 }
 
