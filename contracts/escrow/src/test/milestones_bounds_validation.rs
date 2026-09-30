@@ -90,6 +90,9 @@ fn test_submit_work_evidence_bounds() {
     let max_str_buf = alloc::vec![b'a'; MAX_WORK_EVIDENCE_BYTES as usize];
     let max_evidence = String::from_utf8(env, max_str_buf.as_slice());
     assert!(escrow.submit_work_evidence(&fixture.escrow_id, &fixture.freelancer, &1, &max_evidence));
+
+    // Duplicate submission of exact same evidence is idempotent -> ok
+    assert!(escrow.submit_work_evidence(&fixture.escrow_id, &fixture.freelancer, &1, &max_evidence));
 }
 
 #[test]
@@ -118,5 +121,29 @@ fn test_read_methods_index_out_of_bounds() {
     assert_contract_error(
         escrow.try_get_work_evidence(&fixture.escrow_id, &idx),
         Error::IndexOutOfBounds,
+    );
+
+    assert_contract_error(
+        escrow.try_is_milestone_overdue(&fixture.escrow_id, &idx),
+        Error::IndexOutOfBounds,
+    );
+}
+
+#[test]
+fn test_read_methods_contract_not_found() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    
+    let bad_id = 9999;
+    let idx = 0;
+
+    assert_contract_error(
+        escrow.try_get_milestone(&bad_id, &idx),
+        EscrowError::ContractNotFound,
+    );
+
+    assert_contract_error(
+        escrow.try_is_milestone_overdue(&bad_id, &idx),
+        EscrowError::ContractNotFound,
     );
 }
