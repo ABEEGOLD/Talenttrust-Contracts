@@ -1,4 +1,4 @@
-//! Property-based tests for the reputation system invariants.
+//! Property-based tests for the reputation system validation boundaries.
 //!
 //! Randomized input testing for `issue_reputation` covering:
 //! - Rating bounds: valid (1-5) vs invalid (0, 6+) accepted/rejected

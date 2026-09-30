@@ -7,6 +7,16 @@
 //! - Status starts as Created
 //! - Arbitration modes validated
 //!
+//! Validation boundaries (deterministic, enforced by `create_contract`):
+//! - `milestones` must be non-empty; an empty vector is rejected.
+//! - Every milestone amount must be strictly positive (`> 0`); zero and
+//!   negative amounts are rejected.
+//! - `client` and `freelancer` must be distinct addresses.
+//! - `ReleaseAuthorization::ClientAndArbiter` and `ArbiterOnly` require a
+//!   non-`None` arbiter; `ClientOnly` must not require one.
+//! - On rejection, no contract is persisted and no state is mutated, so
+//!   retries and concurrent submissions cannot observe a partial contract.
+//!
 //! NOTE: Tests requiring fund flow (deposit, release, refund) are excluded due
 //! to a pre-existing auth regression in `deposit_funds` cross-contract
 //! transfers (181 tests fail on clean main for the same reason).
@@ -69,6 +79,26 @@ fn valid_amounts() -> impl Strategy<Value = StdVec<i128>> {
 
 fn small_amounts() -> impl Strategy<Value = StdVec<i128>> {
     prop::collection::vec(1i128..=1000, 1..=5)
+}
+
+/// Boundary amounts: the smallest valid positive value, zero, and negative
+/// values that must all be rejected.
+fn boundary_amounts() -> impl Strategy<Value = StdVec<i128>> {
+    prop::collection::vec(
+        prop_oneof![
+            Just(1i128),
+            Just(0i128),
+            Just(-1i128),
+            Just(i128::MIN),
+            Just(i128::MAX),
+        ],
+        1..=5,
+    )
+}
+
+/// Amounts that are all strictly positive (valid) but include the maximum.
+fn positive_boundary_amounts() -> impl Strategy<Value = StdVec<i128>> {
+    prop::collection::vec(prop_oneof![Just(1i128), Just(i128::MAX)], 1..=5)
 }
 
 const CASES: u32 = 64;
@@ -184,5 +214,122 @@ proptest! {
         prop_assert_eq!(data.released_amount, 0);
         prop_assert_eq!(data.refunded_amount, 0);
         prop_assert!(!data.reputation_issued);
+    }
+
+    /// Empty milestone vectors are always rejected and persist no contract.
+    #[test]
+    fn prop_empty_milestones_rejected(_dummy in 0u8..1) {
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let milestones = Vec::<i128>::new(&env);
+
+        let ok = try_create(&client, &ca, &fa, None, milestones, &ReleaseAuthorization::ClientOnly);
+        prop_assert!(!ok, "Empty milestones must be rejected");
+
+        // No contract should have been persisted under id 1.
+        let lookup = catch_unwind(AssertUnwindSafe(|| client.get_contract(&1u32)));
+        prop_assert!(lookup.is_err(), "Rejected creation must not persist a contract");
+    }
+
+    /// Non-positive milestone amounts (zero, negative, i128::MIN) are rejected.
+    #[test]
+    fn prop_non_positive_milestones_rejected(amounts in boundary_amounts()) {
+        // Only exercise the case where at least one amount is non-positive.
+        prop_assume!(amounts.iter().any(|&a| a <= 0));
+
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let milestones = to_soroban_vec(&env, &amounts);
+
+        let ok = try_create(&client, &ca, &fa, None, milestones, &ReleaseAuthorization::ClientOnly);
+        prop_assert!(!ok, "Non-positive milestone amounts must be rejected");
+
+        let lookup = catch_unwind(AssertUnwindSafe(|| client.get_contract(&1u32)));
+        prop_assert!(lookup.is_err(), "Rejected creation must not persist a contract");
+    }
+
+    /// Boundary-valid amounts (1 and i128::MAX) are accepted.
+    #[test]
+    fn prop_positive_boundary_amounts_accepted(amounts in positive_boundary_amounts()) {
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let milestones = to_soroban_vec(&env, &amounts);
+
+        let ok = try_create(&client, &ca, &fa, None, milestones, &ReleaseAuthorization::ClientOnly);
+        prop_assert!(ok, "Strictly positive boundary amounts must be accepted");
+
+        let data: Contract = client.get_contract(&1u32);
+        prop_assert_eq!(data.status, ContractStatus::Created);
+        prop_assert_eq!(data.total_deposited, 0);
+        prop_assert_eq!(data.released_amount, 0);
+        prop_assert_eq!(data.refunded_amount, 0);
+    }
+
+    /// Duplicate submissions with identical inputs each produce a distinct,
+    /// independent contract with sequential IDs and zeroed accounting.
+    #[test]
+    fn prop_duplicate_submissions_are_independent(amounts in small_amounts()) {
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let milestones = to_soroban_vec(&env, &amounts);
+
+        let first = try_create(&client, &ca, &fa, None, milestones.clone(), &ReleaseAuthorization::ClientOnly);
+        let second = try_create(&client, &ca, &fa, None, milestones.clone(), &ReleaseAuthorization::ClientOnly);
+        prop_assert!(first && second, "Duplicate submissions should each succeed");
+
+        let c1: Contract = client.get_contract(&1u32);
+        let c2: Contract = client.get_contract(&2u32);
+        prop_assert_eq!(c1.status, ContractStatus::Created);
+        prop_assert_eq!(c2.status, ContractStatus::Created);
+        prop_assert_eq!(c1.total_deposited, 0);
+        prop_assert_eq!(c2.total_deposited, 0);
+        prop_assert_eq!(c1.released_amount, 0);
+        prop_assert_eq!(c2.released_amount, 0);
+    }
+
+    /// Rejected creation leaves the next valid contract id unchanged, proving
+    /// no partial state was written by the failed attempt.
+    #[test]
+    fn prop_rejection_does_not_consume_id(amounts in small_amounts()) {
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let milestones = to_soroban_vec(&env, &amounts);
+
+        // Rejected: same participants.
+        let rejected = try_create(&client, &ca, &ca, None, milestones.clone(), &ReleaseAuthorization::ClientOnly);
+        prop_assert!(!rejected);
+
+        // Next valid creation should still receive id 1.
+        let ok = try_create(&client, &ca, &fa, None, milestones, &ReleaseAuthorization::ClientOnly);
+        prop_assert!(ok);
+        let data: Contract = client.get_contract(&1u32);
+        prop_assert_eq!(data.status, ContractStatus::Created);
+    }
+
+    /// Arbiter-required modes succeed when an arbiter is supplied.
+    #[test]
+    fn prop_arbiter_required_modes_with_arbiter(
+        mode in prop_oneof![
+            Just(ReleaseAuthorization::ClientAndArbiter),
+            Just(ReleaseAuthorization::ArbiterOnly),
+        ],
+        amounts in small_amounts(),
+    ) {
+        let (env, client) = setup();
+        let ca = Address::generate(&env);
+        let fa = Address::generate(&env);
+        let arbiter = Address::generate(&env);
+        let milestones = to_soroban_vec(&env, &amounts);
+
+        let ok = try_create(&client, &ca, &fa, Some(arbiter), milestones, &mode);
+        prop_assert!(ok, "Arbiter-required mode with arbiter should succeed");
+
+        let data: Contract = client.get_contract(&1u32);
+        prop_assert_eq!(data.status, ContractStatus::Created);
     }
 }
