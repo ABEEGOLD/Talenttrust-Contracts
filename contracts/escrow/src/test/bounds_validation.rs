@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![cfg(test)]
 //! Bounds validation tests for escrow entrypoints (issue #914).
 //!
 //! Covers every entrypoint that accepts numeric or length-bounded inputs,
@@ -17,9 +17,6 @@
 //!   - `submit_work_evidence`   — evidence ≤ 256 bytes
 //!   - `issue_reputation`       — rating in [1, 5], comment in [1, 200] bytes
 //!   - `refund_unreleased_milestones` — indices < milestones.len()
-//!   - `create_contract`        — milestone count ≤ MAX_MILESTONES, amounts > 0, total ≤ cap
-
-#![cfg(test)]
 
 use soroban_sdk::{
     testutils::Address as _,
@@ -33,10 +30,10 @@ use crate::{
     ReleaseAuthorization,
     MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
 };
-use crate::MAX_MILESTONES as _MAX_MILESTONES_ALIAS;
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
+/// Minimal fixture: initialized escrow, no settlement token.
 /// Minimal fixture: initialized escrow, no settlement token.
 fn setup_no_token(env: &Env) -> (EscrowClient<'_>, Address) {
     env.mock_all_auths_allowing_non_root_auth();
@@ -48,6 +45,7 @@ fn setup_no_token(env: &Env) -> (EscrowClient<'_>, Address) {
 }
 
 /// Full fixture: initialized escrow + bound SAC token + minted client balance.
+/// Full fixture: initialized escrow + bound SAC token + minted client balance.
 fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) {
     env.mock_all_auths_allowing_non_root_auth();
     let addr = env.register(Escrow, ());
@@ -58,7 +56,6 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) 
     let token = env.register_stellar_asset_contract(admin.clone());
     client.bind_settlement_token(&admin, &token);
 
-    // Mint plenty of tokens to the client for deposits.
     let client_addr = Address::generate(env);
     let freelancer_addr = Address::generate(env);
 
@@ -67,8 +64,8 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) 
 
     (client, client_addr, freelancer_addr, admin)
 }
-// (fixture continues below)
 
+/// Create a funded 1-milestone contract; returns contract_id.
 /// Create a funded 1-milestone contract; returns contract_id.
 fn funded_contract(
     env: &Env,
@@ -89,9 +86,9 @@ fn funded_contract(
     id
 }
 
-// ── create_contract — milestone count and amount bounds ──────────────────────
 // ── set_protocol_fee_bps ─────────────────────────────────────────────────────
 
+/// Boundary success: exactly 10_000 bps (100 %) must be accepted.
 /// Boundary success: exactly 10_000 bps (100 %) must be accepted.
 #[test]
 fn set_protocol_fee_bps_accepts_exactly_10000() {
@@ -102,6 +99,7 @@ fn set_protocol_fee_bps_accepts_exactly_10000() {
 }
 
 /// Boundary success: 0 bps (no fee) must be accepted.
+/// Boundary success: 0 bps (no fee) must be accepted.
 #[test]
 fn set_protocol_fee_bps_accepts_zero() {
     let env = Env::default();
@@ -110,6 +108,7 @@ fn set_protocol_fee_bps_accepts_zero() {
     assert_eq!(escrow.get_protocol_fee_bps(), 0_u32);
 }
 
+/// Typical mid-range value (500 bps = 5 %) must be accepted.
 /// Typical mid-range value (500 bps = 5 %) must be accepted.
 #[test]
 fn set_protocol_fee_bps_accepts_typical_value() {
@@ -135,6 +134,7 @@ fn set_protocol_fee_bps_rejects_10001() {
     }
 }
 
+/// u32::MAX must be rejected with InvalidProtocolParameters.
 /// u32::MAX must be rejected with InvalidProtocolParameters.
 #[test]
 fn set_protocol_fee_bps_rejects_u32_max() {
@@ -165,8 +165,8 @@ fn set_protocol_fee_bps_rejected_call_leaves_fee_unchanged() {
 }
 
 // ── deposit_funds ────────────────────────────────────────────────────────────
-// ── deposit_funds ────────────────────────────────────────────────────────────
 
+/// Zero deposit must be rejected with AmountMustBePositive.
 /// Zero deposit must be rejected with AmountMustBePositive.
 #[test]
 fn deposit_funds_rejects_zero_amount() {
@@ -191,6 +191,7 @@ fn deposit_funds_rejects_zero_amount() {
 }
 
 /// Negative deposit must be rejected with AmountMustBePositive.
+/// Negative deposit must be rejected with AmountMustBePositive.
 #[test]
 fn deposit_funds_rejects_negative_amount() {
     let env = Env::default();
@@ -213,6 +214,7 @@ fn deposit_funds_rejects_negative_amount() {
     }
 }
 
+/// Deposit exactly equal to the contract total must be accepted.
 /// Deposit exactly equal to the contract total must be accepted.
 #[test]
 fn deposit_funds_accepts_exact_total() {
@@ -251,8 +253,8 @@ fn deposit_funds_rejects_amount_over_remaining() {
 }
 
 // ── release_milestone — milestone_index bounds ───────────────────────────────
-// ── release_milestone — milestone_index bounds ───────────────────────────────
 
+/// Index equal to the milestone count (out of bounds by 1) must be rejected.
 /// Index equal to the milestone count (out of bounds by 1) must be rejected.
 #[test]
 fn release_milestone_rejects_index_equal_to_count() {
@@ -273,6 +275,7 @@ fn release_milestone_rejects_index_equal_to_count() {
 }
 
 /// u32::MAX index must be rejected with IndexOutOfBounds.
+/// u32::MAX index must be rejected with IndexOutOfBounds.
 #[test]
 fn release_milestone_rejects_u32_max_index() {
     let env = Env::default();
@@ -289,6 +292,7 @@ fn release_milestone_rejects_u32_max_index() {
 }
 
 /// Index 0 on a 1-milestone contract must be accepted (after approval).
+/// Index 0 on a 1-milestone contract must be accepted (after approval).
 #[test]
 fn release_milestone_accepts_index_zero_on_single_milestone() {
     let env = Env::default();
@@ -299,8 +303,8 @@ fn release_milestone_accepts_index_zero_on_single_milestone() {
 }
 
 // ── approve_milestone_release — milestone_index bounds ───────────────────────
-// ── approve_milestone_release — milestone_index bounds ───────────────────────
 
+/// Index equal to the milestone count must be rejected.
 /// Index equal to the milestone count must be rejected.
 #[test]
 fn approve_milestone_release_rejects_index_equal_to_count() {
@@ -319,6 +323,7 @@ fn approve_milestone_release_rejects_index_equal_to_count() {
 }
 
 /// u32::MAX index must be rejected.
+/// u32::MAX index must be rejected.
 #[test]
 fn approve_milestone_release_rejects_u32_max_index() {
     let env = Env::default();
@@ -335,6 +340,7 @@ fn approve_milestone_release_rejects_u32_max_index() {
 }
 
 /// Valid index 0 must be accepted.
+/// Valid index 0 must be accepted.
 #[test]
 fn approve_milestone_release_accepts_valid_index() {
     let env = Env::default();
@@ -344,8 +350,8 @@ fn approve_milestone_release_accepts_valid_index() {
 }
 
 // ── submit_work_evidence — evidence length bounds ────────────────────────────
-// ── submit_work_evidence — evidence length bounds ────────────────────────────
 
+/// Evidence of exactly 256 bytes must be accepted.
 /// Evidence of exactly 256 bytes must be accepted.
 #[test]
 fn submit_work_evidence_accepts_256_bytes() {
@@ -357,6 +363,7 @@ fn submit_work_evidence_accepts_256_bytes() {
     assert!(escrow.submit_work_evidence(&id, &freelancer_addr, &0, &s));
 }
 
+/// Evidence of 257 bytes must be rejected with EvidenceTooLong.
 /// Evidence of 257 bytes must be rejected with EvidenceTooLong.
 #[test]
 fn submit_work_evidence_rejects_257_bytes() {
@@ -375,6 +382,7 @@ fn submit_work_evidence_rejects_257_bytes() {
 }
 
 /// Evidence of 1 byte must be accepted.
+/// Evidence of 1 byte must be accepted.
 #[test]
 fn submit_work_evidence_accepts_one_byte() {
     let env = Env::default();
@@ -384,6 +392,7 @@ fn submit_work_evidence_accepts_one_byte() {
     assert!(escrow.submit_work_evidence(&id, &freelancer_addr, &0, &s));
 }
 
+/// submit_work_evidence must also check milestone_index bounds.
 /// submit_work_evidence must also check milestone_index bounds.
 #[test]
 fn submit_work_evidence_rejects_out_of_bounds_index() {
@@ -403,8 +412,8 @@ fn submit_work_evidence_rejects_out_of_bounds_index() {
 }
 
 // ── issue_reputation — rating and comment bounds ─────────────────────────────
-// ── issue_reputation — rating and comment bounds ─────────────────────────────
 
+/// Helper: drive a contract to Completed status.
 /// Helper: drive a contract to Completed status.
 fn complete_contract_for_reputation(
     env: &Env,
@@ -419,6 +428,7 @@ fn complete_contract_for_reputation(
 }
 
 /// Rating of 1 (minimum) must be accepted.
+/// Rating of 1 (minimum) must be accepted.
 #[test]
 fn issue_reputation_accepts_rating_1() {
     let env = Env::default();
@@ -429,6 +439,7 @@ fn issue_reputation_accepts_rating_1() {
 }
 
 /// Rating of 5 (maximum) must be accepted.
+/// Rating of 5 (maximum) must be accepted.
 #[test]
 fn issue_reputation_accepts_rating_5() {
     let env = Env::default();
@@ -438,6 +449,7 @@ fn issue_reputation_accepts_rating_5() {
     assert!(escrow.issue_reputation(&id, &client_addr, &5_u32, &comment));
 }
 
+/// Rating of 0 must be rejected with InvalidRating.
 /// Rating of 0 must be rejected with InvalidRating.
 #[test]
 fn issue_reputation_rejects_rating_0() {
@@ -456,6 +468,7 @@ fn issue_reputation_rejects_rating_0() {
 }
 
 /// Rating of 6 must be rejected with InvalidRating.
+/// Rating of 6 must be rejected with InvalidRating.
 #[test]
 fn issue_reputation_rejects_rating_6() {
     let env = Env::default();
@@ -473,6 +486,7 @@ fn issue_reputation_rejects_rating_6() {
 }
 
 /// Comment of exactly 200 bytes must be accepted.
+/// Comment of exactly 200 bytes must be accepted.
 #[test]
 fn issue_reputation_accepts_comment_200_bytes() {
     let env = Env::default();
@@ -482,6 +496,7 @@ fn issue_reputation_accepts_comment_200_bytes() {
     assert!(escrow.issue_reputation(&id, &client_addr, &5_u32, &comment));
 }
 
+/// Comment of 201 bytes must be rejected with CommentTooLong.
 /// Comment of 201 bytes must be rejected with CommentTooLong.
 #[test]
 fn issue_reputation_rejects_comment_201_bytes() {
@@ -500,6 +515,7 @@ fn issue_reputation_rejects_comment_201_bytes() {
 }
 
 /// Empty comment must be rejected with EmptyComment.
+/// Empty comment must be rejected with EmptyComment.
 #[test]
 fn issue_reputation_rejects_empty_comment() {
     let env = Env::default();
@@ -517,8 +533,8 @@ fn issue_reputation_rejects_empty_comment() {
 }
 
 // ── refund_unreleased_milestones — index bounds ──────────────────────────────
-// ── refund_unreleased_milestones — index bounds ──────────────────────────────
 
+/// Out-of-bounds index in refund request must be rejected with IndexOutOfBounds.
 /// Out-of-bounds index in refund request must be rejected with IndexOutOfBounds.
 #[test]
 fn refund_unreleased_milestones_rejects_out_of_bounds_index() {
@@ -546,6 +562,7 @@ fn refund_unreleased_milestones_rejects_out_of_bounds_index() {
 }
 
 /// u32::MAX index must be rejected with IndexOutOfBounds.
+/// u32::MAX index must be rejected with IndexOutOfBounds.
 #[test]
 fn refund_unreleased_milestones_rejects_u32_max_index() {
     let env = Env::default();
@@ -570,8 +587,8 @@ fn refund_unreleased_milestones_rejects_u32_max_index() {
 }
 
 // ── Regression: existing valid inputs still accepted ─────────────────────────
-// ── Regression: existing valid inputs still accepted ─────────────────────────
 
+/// A standard 3-milestone contract with typical amounts must still be created.
 /// A standard 3-milestone contract with typical amounts must still be created.
 #[test]
 fn regression_standard_three_milestone_contract_accepted() {

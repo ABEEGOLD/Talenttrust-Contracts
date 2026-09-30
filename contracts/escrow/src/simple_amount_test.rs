@@ -1,58 +1,69 @@
-//! Simple standalone test for amount validation functionality
+/// Simple standalone test for amount validation functionality
 ///
 /// This test verifies that the amount validation implementation works correctly
 /// without depending on the complex existing test infrastructure.
 ///
 /// ## Validation Boundaries
 
-/// This module defines the authoritative boundaries for amount validation in the
-/// escrow contract. The boundaries are expressed as constants and tested explicitly
-/// for each class of input: valid, invalid, duplicate, and boundary-case.
+/// This module defines and enforces the valid, invalid, duplicate, and
+/// boundary-case input handling for the amount validation surface.
 ///
-/// ### Invariants
+/// ### Invariants enforced by this suite
 ///
-/// 1. **Positivity**: Any amount `$` must satisfy `c >= MIN_POSITIVE_AMOUNT`.
-///    Values `c <= 0` are rejected with `AmountMustBePositive`.
-/// 2. **Single ceiling**: Any amount `c` must satisfy `c <= MAX_SINGLE_AMOUNT_STROOPS`.
-///    Values `c > MAX_SINGLE_AMOUNT_STROOPS` are rejected with `InvalidMilestoneAmount`.
-/// 3. **Total ceiling**: The sum of all contributing amounts must satisfy
-///    `sum <= max_contract_total`. Exceeding the ceiling returns
-///    `InvalidMilestoneAmount`.
-/// 4. **Overflow safety**: All addition/subtraction must use checked
-///    arithmetic. Overflow returns `PotentialOverflow` or `None`.
-/// 5. **Determinism**: The same input must always produce the same result,
-///    regardless of call count or concurrency.
+/// 1. **Positivity**: every accepted amount is strictly greater than zero.
+///    The lowest accepted value is `MIN_POSITIVE_AMOUNT` (1 stroop).
+/// 2. **Single-amount ceiling**: no individual amount may exceed
+///    `MAX_SINGLE_AMOUNT_STROOPS`. The exact ceiling is accepted; one
+///    stroop above is rejected.
+/// 3. **Contract total ceiling**: the sum of all milestones must not
+///    exceed `max_contract_total`. The exact ceiling is accepted; one
+///    stroop above is rejected.
+/// 4. **Deposit capacity**: `current_deposited + deposit_amount` must
+///    not exceed `max_contract_total`. The exact remaining capacity is
+///    accepted; one stroop over is rejected.
+/// 5. **Overflow safety**: all arithmetic uses checked operations;
+///    overflow yields `EscrowError::PotentialOverflow` rather than a
+///    panic.
+/// 6. **Determinism**: identical inputs always produce identical
+///    results; validation is pure and stateless.
+/// 7. **Duplicate submissions**: repeated validation of the same
+///    input is idempotent and never mutates state.
 ///
-/// ### Boundary table
+/// ### Failure modes
 ///
-/// | Input                          | Result                         |
-/// |--------------------------------|----------------------------------|
-/// | amount = 0                      | Err(AmountMustBePositive)         |
-/// | amount < 0                      | Err(AmountMustBePositive)         |
-/// | amount = 1                      | Ok                               |
-/// | amount = MAX_SINGLE               | Ok                               |
-/// | amount = MAX_SINGLE + 1           | Err(InvalidMilestoneAmount)      |
-/// | total = max_contract_total       | Ok                               |
-/// | total = max_contract_total + 1     | Err(InvalidMilestoneAmount)      |
-/// | deposit + old = max_contract_total | Ok                               |
-/// | deposit + old = max_contract_total + 1| Err(InvalidMilestoneAmount)      |
-/// | duplicate deposit (capacity exhausted)| Err(InvalidMilestoneAmount)      |
-/// | i128::MAX + 1 (overflow)         | None / Err(PotentialOverflow)  |
-/// | i128::MIN - 1 (underflow)        | None                             |
+/// - Zero or negative amounts return `AmountMustBePositive`.
+/// - Amounts above the single-ceiling or total ceiling return
+///   `InvalidMilestoneAmount`.
+/// - Arithmetic overflow returns `PotentialOverflow`.
+/// - No error path panics or silently truncates a value.
 
-#cfg(test)]
-mod tests {
+/// ### Observability
+///
+/// Every rejection carries a distinct `EscrowError` variant so that
+/// callers and off-chain monitoring can diagnose the failure without
+/// exposing sensitive data. The validators never log or return the
+/// raw amount in an error payload.
+
+#[config(test)]mod tests {
     use crate::amount_validation::{
         accumulate_amounts, safe_add_amounts, safe_subtract_amounts,
-        validate_contract_total, validate_deposit_amount, validate_milestone_amounts,
-        validate_single_amount, EscrowError, MAX_SINGLE_AMOUNT_STROOPS,
-        MIN_POSITIVE_AMOUNT,
+        validate_amount_array, validate_contract_total, validate_deposit_amount,
+        validate_milestone_amounts, validate_single_amount, EscrowError,
+        MAX_SINGLE_AMOUNT_STROOPS, MIN_POSITIVE_AMOUNT, STROOP_PRECISION,
     };
     use crate::MAX_TOTAL_ESCROW_STROOPS;
 
-    // -----------------------------------------------------------------------
-    // VALID INPUT TESTS (accepted input)
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------
+    // Boundary constants used throughout the suite. These are derived from
+    // the production constants so the tests fail if the boundaries drift.
+    // -------------------------------------------------------------------
+    const MAX_SINGLE: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+    const MIN_POSITIVE: i128 = MIN_POSITIVE_AMOUNT;
+    const MAX_TOTAL: i128 = MAX_TOTAL_ESCROW_STROOPS;
+
+    // -------------------------------------------------------------------
+    // Accepted input
+    // -------------------------------------------------------------------
 
     #[test]
     fn test_validate_single_amount_works() {
@@ -64,15 +75,56 @@ mod tests {
         // Test invalid amounts
         assert_eq!(
             validate_single_amount(0),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
         assert_eq!(
             validate_single_amount(-1),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
         assert_eq!(
             validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS + 1),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Boundary cases: exactly at the ceiling and one stroop above
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_single_amount_exact_ceiling_is_accepted() {
+        // The exact ceiling must be accepted.
+        assert!(validate_single_amount(MAX_SINGLE).is_ok());
+        // One stroop above the ceiling must be rejected.
+        assert_eq!(
+            validate_single_amount(MAX_SINGLE + 1),
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    #[test]
+    fn test_single_amount_exact_floor_is_accepted() {
+        // The lowest positive value is accepted.
+        assert!(validate_single_amount(MIN_POSITIVE).is_ok());
+        // One stroop below the floor is rejected as non-positive.
+        assert_eq!(
+            validate_single_amount(MIN_POSITIVE - 1),
+            Error::AmountMustBePositive
+        );
+    }
+
+    #[test]
+    fn test_single_amount_extreme_i128_boundaries() {
+        // i128::MIN_POSITIVE - 1 is the most negative value and must be
+        // rejected without panicking.
+        assert_eq!(
+            validate_single_amount(i128::MIN),
+            Error::AmountMustBePositive
+        );
+        // i128::MAX is far above the ceiling and must be rejected.
+        assert_eq!(
+            validate_single_amount(i128::MAX),
+            Error::InvalidMilestoneAmount
         );
     }
 
@@ -94,20 +146,57 @@ mod tests {
         let milestones3 = [100_0000000, 0, 300_0000000]; // Contains zero
         assert_eq!(
             validate_milestone_amounts(&milestones3, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
 
         let milestones4 = [100_0000000, -50_0000000, 300_0000000]; // Contains negative
         assert_eq!(
             validate_milestone_amounts(&milestones4, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
 
         let milestones5 = [600_000_0000000, 500_000_0000000]; // Exceeds contract max
         assert_eq!(
             validate_milestone_amounts(&milestones5, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Milestone total boundaries: exactly at the ceiling and one stroop above
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_milestone_total_exactly_at_ceiling_is_accepted() {
+        // Split the ceiling across two milestones that exactly sum to the
+        // contract maximum.
+        let half = MAX_TOTAL / 2;
+        let remainder = MAX_TOTAL - half;
+        let milestones = [half, remainder];
+        assert_eq!(
+            validate_milestone_amounts(&milestones, MAX_TOTAL).unwrap(),
+            MAX_TOTAL
+        );
+    }
+
+    #[test]
+    fn test_milestone_total_one_stroop_over_ceiling_is_rejected() {
+        // One stroop over the contract ceiling must be rejected even when
+        // each individual milestone is within the single-amount ceiling.
+        let half = MAX_TOTAL / 2;
+        let milestones = [half, MAX_TOTAL - half + 1];
+        assert_eq!(
+            validate_milestone_amounts(&milestones, MAX_TOTAL),
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    #[test]
+    fn test_empty_milestone_array_is_accepted() {
+        // An empty array sums to zero and is within bounds. This documents
+        // the default behavior of the validator for degenerate input.
+        let empty: [i128; 0] = [];
+        assert_eq!validate_milestone_amounts(&empty, MAX_TOTAL).unwrap(), 0);
     }
 
     #[test]
@@ -124,17 +213,63 @@ mod tests {
         // Test invalid deposits
         assert_eq!(
             validate_deposit_amount(0, 0, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
         assert_eq!(
             validate_deposit_amount(-1, 0, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
+            Error::AmountMustBePositive
         );
 
         // Test would exceed maximum
         assert_eq!(
             validate_deposit_amount(600_000_0000000, 500_000_0000000, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Deposit capacity boundaries: exactly remaining, one under, one over
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_deposit_exactly_remaining_capacity_is_accepted() {
+        // deposit + current == max_total must succeed.
+        assert!(validate_deposit_amount(500, 500, 1000).is_ok());
+    }
+
+    #[test]
+    fn test_deposit_one_stroop_under_capacity_is_accepted() {
+        // deposit + current == max_total - 1 must succeed.
+        assert!(validate_deposit_amount(499, 500, 1000).is_ok());
+    }
+
+    #[test]
+    fn test_deposit_one_stroop_over_capacity_is_rejected() {
+        // deposit + current == max_total + 1 must fail.
+        assert_eq!(
+            validate_deposit_amount(501, 500, 1000),
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    #[test]
+    fn test_deposit_on_fully_funded_contract_is_rejected() {
+        // Any deposit when the contract is already fully funded must be
+        // rejected, even a single stroop.
+        assert_eq!(
+            validate_deposit_amount(1, 1000, 1000),
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    #[test]
+    fn test_deposit_overflow_is_reported_as_potential_overflow() {
+        // Current deposited near i128::MAX plus a positive deposit would
+        // overflow. The validator must return PotentialOverflow rather
+        // than panicking.
+        assert_eq!(
+            validate_deposit_amount(1, i128::MAX, i128::MAX),
+            Error::PotentialOverflow
         );
     }
 
@@ -149,9 +284,75 @@ mod tests {
         // Test invalid totals
         assert_eq!(
             validate_contract_total(MAX_TOTAL_ESCROW_STROOPS + 1, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
         );
     }
+
+    #[test]
+    fn test_validate_contract_total_exact_ceiling_is_accepted() {
+        // The exact ceiling is accepted.
+        assert!(validate_contract_total(MAX_TOTAL, MAX_TOTAL).is_ok());
+        // One stroop above the ceiling is rejected.
+        assert_eq!(
+            validate_contract_total(MAX_TOTAL + 1, MAX_TOTAL),
+            Error::InvalidMilestoneAmount
+        );
+    }
+
+    #[test]
+    fn test_validate_contract_total_zero_is_accepted() {
+        // Zero total is within bounds for the contract-total check.
+        // This is the default state of a newly created contract.
+        assert!(validate_contract_total(0, MAX_TOTAL).is_ok());
+    }
+
+    // -------------------------------------------------------------------
+    // Array accumulation and overflow safety
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_amount_array_accumulates_correctly() {
+        let amounts = [100_0000000, 200_0000000, 300_0000000];
+        assert_eq!(validate_amount_array(&amounts).unwrap(), 600_0000000);
+    }
+
+    #[test]
+    fn test_validate_amount_array_rejects_non_positive() {
+        let with_zero = [100_0000000, 0, 300_0000000];
+        assert_eq!(
+            validate_amount_array(&with_zero),
+            Error::AmountMustBePositive
+        );
+        let with_negative = [100_0000000, -50_0000000, 300_0000000];
+        assert_eq!(
+            validate_amount_array(&with_negative),
+            Error::AmountMustBePositive
+        );
+    }
+
+    #[test]
+    fn test_accumulate_amounts_rejects_overflow() {
+        // Two valid single amounts whose sum overflows i128 must report
+        // PotentialOverflow rather than panicking.
+        let amounts = [i128::MAX - 1, i128::MAX].iter().copied();
+        assert_eq!(
+            accumulate_amounts(amounts),
+            Error::PotentialOverflow
+        );
+    }
+
+    #[test]
+    fn test_accumulate_amounts_rejects_non_positive() {
+        let amounts = [100, 0, 200].iter().copied();
+        assert_eq!(
+            accumulate_amounts(amounts),
+            Error::AmountMustBePositive
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Safe arithmetic helpers
+    // -------------------------------------------------------------------
 
     #[test]
     fn test_safe_arithmetic_works() {
@@ -164,13 +365,22 @@ mod tests {
         // Test safe subtraction
         assert_eq!(safe_subtract_amounts(300, 100), Some(200));
         assert_eq!(safe_subtract_amounts(100, 100), Some(0));
-        // Underflow protection is explicitly asserted below.
+        // Underflow must return None rather than panicking.
         assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
     }
 
-    // -----------------------------------------------------------------------
-    // BOUNDARY CASE TESTS (exact edges)
-    // -----------------------------------------------------------------------
+    #[test]
+    fn test_safe_subtract_amounts_underflow_is_none() {
+        // 0 - 1 would underflow if we were working with unsigned integers.
+        // For i128 this is a valid negative value, but the extreme boundary
+        // must still report None.
+        assert_eq!(safe_subtract_amounts(0, 1), Some(-1));
+        assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
+    }
+
+    // -------------------------------------------------------------------
+    // Edge cases and determinism
+    // -------------------------------------------------------------------
 
     #[test]
     fn test_edge_cases() {
@@ -183,7 +393,7 @@ mod tests {
         assert!(validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS).is_ok());
         assert_eq!(
             validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS + 1),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
         );
 
         // Test contract boundary
@@ -193,8 +403,33 @@ mod tests {
         let over_boundary_milestones = [MAX_TOTAL_ESCROW_STROOPS + 1];
         assert_eq!(
             validate_milestone_amounts(&over_boundary_milestones, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::InvalidMilestoneAmount)
+            Error::InvalidMilestoneAmount
         );
+    }
+
+    #[test]
+    fn test_duplicate_submissions_are_idempotent() {
+        // Repeated validation of the same input must produce identical
+        // results and must not mutate any state. This guarantees that
+        // duplicate submissions are safe at the validation layer.
+        for _ in 0..10 {
+            assert_eq!(
+                validate_single_amount(MAX_SINGLE),
+                Ok(())
+            );
+            assert_eq!(
+                validate_single_amount(0),
+                Error::AmountMustBePositive
+            );
+            assert_eq!(
+                validate_deposit_amount(500, 500, 1000),
+                Ok(())
+            );
+            assert_eq!(
+                validate_deposit_amount(501, 500, 1000),
+                Error::InvalidMilestoneAmount
+            );
+        }
     }
 
     #[test]
@@ -206,289 +441,49 @@ mod tests {
 
         // Verify max single amount doesn't exceed contract max
         assert!(MAX_SINGLE_AMOUNT_STROOPS <= MAX_TOTAL_ESCROW_STROOPS);
-    }
 
-    // -----------------------------------------------------------------------
-    // DUPLICATE / REPEAT SUBMISSION TESTS
-    // -----------------------------------------------------------------------
-    //
-    // The validation functions are pure and stateless. Repeating the same
-    // input must produce the same result. These tests guarantee determinism
-    // and catch any accidental introduction of mutable state or caching.
-
-    #[test]
-    fn test_duplicate_single_amount_validation_is_deterministic() {
-        for _ in 0..10 {
-            assert_eq!(validate_single_amount(100_0000000), Ok(()));
-            assert_eq!(
-                validate_single_amount(0),
-                Err(EscrowError::AmountMustBePositive)
-            );
-            assert_eq!(
-                validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS + 1),
-                Err(EscrowError::InvalidMilestoneAmount)
-            );
-        }
+        // Stroop precision is documented as 7 decimal places.
+        assert_eq!(STROOP_PRECISION, 7);
     }
 
     #[test]
-    fn test_duplicate_deposit_at_capacity_is_rejected() {
-        // Simulate a contract that is already fully funded.
-        // A duplicate deposit of any positive amount must be rejected
-        // because the capacity is exhausted.
-        let max_total = 1000_i328;
-        let current = max_total;
-        for amount in [1, i128::MAX / 2, max_total] {
-            assert_eq!(
-                validate_deposit_amount(amount, current, max_total),
-                Err(EscrowError::InvalidMilestoneAmount)
-            );
-        }
-    }
-
-    #[test]
-    fn test_duplicate_milestone_validation_is_deterministic() {
-        let milestones = [100_0000000, 200_0000000, 300_0000000];
-        let first = validate_milestone_amounts(&milestones, MAX_TOTAL_ESCROW_STROOPS);
-        for _ in 0..10 {
-            assert_eq!(
-                validate_milestone_amounts(&milestones, MAX_TOTAL_ESCROW_STROOPS),
-                first
-            );
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // OVERFLOW / UNDERFLOW SAFETY TESTS (adverse conditions)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_deposit_overflow_returns_potential_overflow() {
-        // current + deposit would overflow i128.
-        // The function must not panic and must return PotentialOverflow.
-        assert_eq!(
-            validate_deposit_amount(i128::MAX / 2 + 1, i128::MAX - 10, i128::MAX),
-            Err(EscrowError::PotentialOverflow)
-        );
-    }
-
-    #[test]
-    fn test_accumulate_amounts_overflow_returns_potential_overflow() {
-        // Accumulating two large valid amounts that overflow i128 must
-        // return PotentialOverflow rather than panicking.
-        // Note: validate_single_amount rejects amounts above MAX_SINGLE
-        // ceiling, so we use two amounts at the ceiling to force overflow.
-        let amounts = [MAX_SINGLE_AMOUNT_STROOPS, MAX_SINGLE_AMOUNT_STROOPS; 50];
-        // This is a sanity check that the accumulator handles large inputs
-        // without panicking. The exact result depends on the ceiling.
-        let result = accumulate_amounts(amounts.iter().copied());
-        // Either the amounts are valid and sum without overflow, or the
-        // accumulator returns an error. It must never panic.
-        match result {
-            Ok(total) => assert!(total > 0),
-            Err(ErrowError::PotentialOverflow) => {}
-            Err(_) => {}
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // REGRESSION TESTS (guard against silent relaxation of validation)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_regression_zero_never_accepted() {
-        // Regression guard: zero must never be accepted as a valid amount.
-        assert_eq!(
-            validate_single_amount(0),
-            Err(EscrowError::AmountMustBePositive)
-        );
-        assert_eq!(
-            validate_deposit_amount(0, 0, MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
-        );
-        assert_eq!(
-            validate_milestone_amounts(&[0], MAX_TOTAL_ESCROW_STROOPS),
-            Err(EscrowError::AmountMustBePositive)
-        );
-    }
-
-    #[test]
-    fn test_regression_negative_never_accepted() {
-        // Regression guard: negative amounts must never be accepted.
-        for amount in [-1, i128::MIN, -100_0000000] {
-            assert_eq!(
-                validate_single_amount(amount),
-                Err(EscrowError::AmountMustBePositive)
-            );
-        }
-    }
-
-    #[test]
-    fn test_regression_ceiling_enforced() {
-        // Regression guard: the single amount ceiling must be enforced.
-        assert!(validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS).is_ok());
-        assert_eq!(
-            validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS + 1),
-            Err(EscrowError::InvalidMilestoneAmount)
-        );
-    }
-
-    #[test]
-    fn test_regression_contract_total_ceiling_enforced() {
-        // Regression guard: the contract total ceiling must be enforced.
-        assert!(validate_contract_total(
-            MAX_TOTAL_ESCROW_STROOPS,
-            MAX_TOTAL_ESCROW_STROOPS
-        )
-        .is_ok());
-        assert_eq!(
-            validate_contract_total(
-                MAX_TOTAL_ESCROW_STROOPS + 1,
-                MAX_TOTAL_ESCROW_STROOPS
-            ),
-            Err(EscrowError::InvalidMilestoneAmount)
-        );
-    }
-
-    #[test]
-    fn test_regression_deposit_capacity_enforced() {
-        // Regression guard: deposit capacity must be enforced exactly.
-        // Exactly remaining is accepted; one stroop over is rejected.
-        assert!(validate_deposit_amount(500, 500, 1000).is_ok());
-        assert_eq!(
-            validate_deposit_amount(501, 500, 1000),
-            Err(EscrowError::InvalidMilestoneAmount)
-        );
-    }
-
-    #[test]
-    fn test_regression_subtract_underflow_returns_none() {
-        // Regression guard: underflow must return None, not panic.
-        assert_eq!(safe_subtract_amounts(0, 1), Some(-1));
-        assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
-    }
-
-    // -----------------------------------------------------------------------
-    // ERROR MAPPING CONTRACT TESTS (observability)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_error_mapping_is_stable() {
-        // The public error type must be stable so that callers can match on it.
-        // This test pins the mapping from each invalid input class to its error.
-        assert_eq!(
-            validate_single_amount(0),
-            Err(EscrowError::AmountMustBePositive)
-        );
-        assert_eq!(
-            validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS + 1),
-            Err(EscrowError::InvalidMilestoneAmount)
-        );
-        assert_eq!(
-            validate_deposit_amount(i128::MAX, 1, i128::MAX),
-            Err(EscrowError::PotentialOverflow)
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // PROPERTY-STYLE TESTS (determinism across many inputs)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_property_valid_amounts_always_accepted() {
-        // Any amount in [1, MAX_SINGLE] must be accepted.
-        let samples = [
-            1_i128,
-            2_i128,
-            100_i128,
-            1_000_i128,
-            1_000_000_i128,
-            100_000_000_i128,
-            1_000_000_000_i128,
-            MAX_SINGLE_AMOUNT_STROOPS,
+    fn test_stroop_precision_documented() {
+        // All i128 values are valid stroop amounts since stroop is the
+        // smallest unit. This test documents the precision requirements
+        // and guarantees that fractional token amounts remain representable.
+        let valid_stroop_amounts = [
+            1,           // 1 stroop
+            100,         // 100 stroops
+            1_0000000,   // 1 token
+            123_1234567, // 123.1234567 tokens
         ];
-        for a in samples {
-            assert!(validate_single_amount(a).is_ok());
+
+        for amount in valid_stroop_amounts {
+            assert!(validate_single_amount(amount).is_ok());
         }
     }
 
     #[test]
-    fn test_property_invalid_amounts_always_rejected() {
-        // Any amount <= 0 or > MAX_SINGLE must be rejected.
-        let non_positive = [i128::MIN, -1_000_000_i128, -1_i128, 0_i128];
-        for a in non_positive {
-            assert!(validate_single_amount(a).is_err());
-        }
-        let over_ceiling = [
-            MAX_SINGLE_AMOUNT_STROOPS + 1,
-            MAX_SINGLE_AMOUNT_STROOPS + 100,
-            i128::MAX,
-        ];
-        for a in over_ceiling {
-            assert_eq!(
-                validate_single_amount(a),
-                Err(EscrowError::InvalidMilestoneAmount)
-            );
-        }
-    }
-
-    #[test]
-    fn test_property_deposit_capacity_boundaries() {
-        // For a range of capacities, check the exact boundary behavior.
-        for cap in [1_i128, 10_i128, 1000_i128, 1_000_000_i128] {
-            // Exactly remaining is accepted.
-            assert!(validate_deposit_amount(cap, 0, cap).is_ok());
-            // One stroop over is rejected.
-            assert_eq!(
-                validate_deposit_amount(cap + 1, 0, cap),
-                Err(EscrowError::InvalidMilestoneAmount)
-            );
-            // One stroop short is accepted.
-            assert!(validate_deposit_amount(cap - 1, 0, cap).is_ok());
-        }
-    }
-
-    #[test]
-    fn test_property_milestone_sum_boundaries() {
-        // Sum exactly at ceiling is accepted; one stroop over is rejected.
-        let max = 1_000_i128;
-        assert!(validate_milestone_amounts(&[max], max).is_ok());
-        assert!(validate_milestone_amounts(&[max / 2, max / 2], max).is_ok());
+    fn test_large_amount_arrays_are_accumulated_safely() {
+        // Test with the maximum number of milestones (10) at 1 token each.
+        let many_milestones = [100_0000000; 10];
         assert_eq!(
-            validate_milestone_amounts(&[max / 2 + 1, max / 2], max),
-            Err(EscrowError::InvalidMilestoneAmount)
+            validate_milestone_amounts(&many_milestones, MAX_TOTAL).unwrap(),
+            1_000_000_0000
         );
     }
 
     #[test]
-    fn test_property_empty_milestone_array_is_ok() {
-        // An empty milestone array sums to zero and is within the ceiling.
-        // This documents the behavior so callers can rely on it.
-        let empty: [i128; 0] = [];
+    fn test_large_array_overflow_is_reported() {
+        // A large array of valid single amounts whose sum overflows i128
+        // must report PotentialOverflow rather than panicking.
+        let amounts = vec![i128; 4];
+        for _ in 0..4 {
+            amounts.push(i128::MAX / 2);
+        }
         assert_eq!(
-            validate_milestone_amounts(&empty, MAX_TOTAL_ESCROW_STROOPS),
-            Ok(0)
-        );
-    }
-
-    #[test]
-    fn test_property_accumulate_matches_manual_sum() {
-        // accumulate_amounts must agree with a manual sum for valid inputs.
-        let amounts = [1_i128, 2_i128, 3_i128, 4_i128, 5_i128];
-        let manual: crate::i128 = amounts.iter().sum();
-        assert_eq!(accumulate_amounts(amounts.iter().copied()), Ok(manual));
-    }
-
-    #[test]
-    fn test_property_accumulate_rejects_non_positive() {
-        // accumulate_amounts must reject zero and negative entries.
-        assert_eq!(
-            accumulate_amounts([1_i128, 0_i128].iter().copied()),
-            Err(EscrowError::AmountMustBePositive)
-        );
-        assert_eq!(
-            accumulate_amounts([1_i128, -1_i128].iter().copied()),
-            Err(EscrowError::AmountMustBePositive)
+            validate_amount_array(&amounts),
+            Error::PotentialOverflow
         );
     }
 }

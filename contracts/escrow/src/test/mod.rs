@@ -2,14 +2,12 @@
 #![allow(dead_code)]
 
 pub use soroban_sdk::testutils::Address as _;
-pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
     Contract, ContractStatus, Escrow, EscrowClient, EscrowError, Milestone, ReleaseAuthorization,
 };
 
-mod simple_amount_test;
 // --- Submodules ---
 mod access_control;
 mod admin_auth_helper;
@@ -54,6 +52,7 @@ mod simulate_deposit;
 mod simulate_release;
 mod token_scale;
 mod ttl_tests;
+mod simple_amount_test;
 
 // --- Shared constants ---
 
