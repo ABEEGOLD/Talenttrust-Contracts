@@ -1646,7 +1646,10 @@ impl Escrow {
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
-        contract.funded_amount - contract.released_amount - contract.refunded_amount - accumulated_fees
+        contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees
     }
 
     // Retrieves approval status for a milestone.
