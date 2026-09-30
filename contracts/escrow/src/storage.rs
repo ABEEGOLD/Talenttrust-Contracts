@@ -13,7 +13,7 @@ use soroban_sdk::{Env, Symbol, Vec};
 /// - `InvalidContractId` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
-        env.panic_with_error(EscrowError::ContractNotFound);
+        env.panic_with_error(Error::InvalidContractId);
     }
 }
 

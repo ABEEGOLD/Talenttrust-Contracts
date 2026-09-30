@@ -148,13 +148,6 @@ impl Escrow {
             token_scale::require_all_exact_scale(&env, native_milestones[..len].iter(), decimals);
         }
 
-        ttl::extend_next_contract_id_ttl(&env);
-        let id = Self::next_contract_id(&env);
-
-        // Retain the original freelancer address alongside `freelancer` so the
-        // created event can publish it without re-cloning once the move into
-        // the Contract struct below is performed.
-        let freelancer_addr = freelancer.clone();
 
         // Construct the contract with all required fields, initialising
         // accounting counters to zero and reputation_issued to false.
@@ -170,6 +163,20 @@ impl Escrow {
             release_authorization,
             reputation_issued: false,
         };
+
+        // Reserve the contract id *before* any further fallible work so that
+        // concurrent or re-entrant invocations cannot observe the same id.
+        // The reservation is a single read-modify-write of `NextContractId`
+        // performed under the host's storage semantics; the collision check
+        // below re-validates the slot immediately before the contract is
+        // written, closing the TOCTOU window between allocation and write.
+        ttl::extend_next_contract_id_ttl(&env);
+        let id = Self::reserve_contract_id(&env);
+
+        // Retain the original freelancer address alongside `freelancer` so the
+        // created event can publish it without re-cloning once the move into
+        // the Contract struct below is performed.
+        let freelancer_addr = freelancer.clone();
 
         env.storage()
             .persistent()
@@ -193,13 +200,6 @@ impl Escrow {
             .persistent()
             .set(&milestone_key, &milestone_vec);
 
-        let next_id = id
-            .checked_add(1)
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
-        env.storage()
-            .persistent()
-            .set(&DataKey::NextContractId, &next_id);
-
         env.events().publish(
             (symbol_short!("created"), id),
             (client, freelancer.clone(), env.ledger().timestamp()),
@@ -210,6 +210,46 @@ impl Escrow {
 }
 
 impl Escrow {
+    /// Atomically reserves and returns the next available contract ID.
+    ///
+    /// This is the concurrency-safe counterpart to [`Self::next_contract_id`].
+    /// It performs a single read-modify-write of `DataKey::NextContractId`:
+    /// the incremented value is persisted *before* the id is returned to the
+    /// caller, so a concurrent or re-entrant invocation that reaches this
+    /// point cannot observe the same id. The collision check is retained as a
+    /// defensive invariant: if the reserved slot is already occupied the
+    /// reservation is aborted with `ContractIdCollision` rather than silently
+    /// overwriting existing state.
+    ///
+    /// # Errors
+    /// * `ContractIdOverflow`  - If the next id would exceed `u32::MAX`
+    /// * `ContractIdCollision` - If the reserved id slot is already occupied
+    pub(crate) fn reserve_contract_id(env: &Env) -> u32 {
+        let id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1);
+
+        if env
+            .storage()
+            .persistent()
+            .get::<_, Contract>(&DataKey::Contract(id))
+            .is_some()
+        {
+            env.panic_with_error(Error::ContractIdCollision);
+        }
+
+        let next_id = id
+            .checked_add(1)
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
+        env.storage()
+            .persistent()
+            .set(&DataKey::NextContractId, &next_id);
+
+        id
+    }
+
     /// Returns the next available contract ID and asserts it is not already occupied.
     ///
     /// # Errors
