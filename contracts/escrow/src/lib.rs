@@ -1,3 +1,4 @@
+
 //! TalentTrust escrow contract for milestone-based freelancer payments.
 //!
 //! The crate root exposes the Soroban contract and still owns several public

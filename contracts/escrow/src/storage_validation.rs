@@ -5,6 +5,24 @@
 //! logical parameter and panics with the appropriate typed [`EscrowError`]
 //! on rejection.
 //!
+//! # State invariants
+//!
+//! These validators are the *only* sanctioned gate for the storage-mutating
+//! entrypoints they guard. Callers MUST invoke the matching validator before
+//! any state mutation so the following invariants hold:
+//!
+//! * `max_escrow_total_stroops > 0` — a non-positive cap would permanently
+//!   block contract creation.
+//! * `MIN_RATING <= min_rating <= max_rating <= MAX_REPUTATION_CONFIG_RATING_CEILING`
+//!   and `MIN_COMMENT_BYTES <= max_comment_bytes <= MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`.
+//! * `1 <= milestone_count <= MAX_MILESTONES`.
+//! * `0 <= fee_bps <= MAX_FEE_BPS`.
+//! * `0 < amount <= MAX_SINGLE_AMOUNT_STROOPS`.
+//!
+//! All checks are pure and deterministic: identical inputs always yield the
+//! same accept/reject decision, and rejection happens before any storage
+//! write, so partial failure cannot leave inconsistent state.
+//!
 //! All functions are pure (no side-effects) and intended to be called at the
 //! top of the corresponding entrypoint, before any state mutation occurs.
 
@@ -27,6 +45,9 @@ use soroban_sdk::Env;
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
 /// of range.
+///
+/// # Invariant
+/// Guarantees `max_escrow_total_stroops > 0` on return.
 pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i128) {
     if max_escrow_total_stroops <= 0 {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -42,6 +63,11 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
+///
+/// # Invariant
+/// Guarantees `MIN_RATING <= min_rating <= max_rating <= MAX_REPUTATION_CONFIG_RATING_CEILING`
+/// and `MIN_COMMENT_BYTES <= max_comment_bytes <= MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`
+/// on return.
 pub(crate) fn validate_reputation_config_params(
     env: &Env,
     min_rating: u32,
@@ -70,6 +96,9 @@ pub(crate) fn validate_reputation_config_params(
 /// # Panics
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
 /// [`EscrowError::TooManyMilestones`] when `count > MAX_MILESTONES`.
+///
+/// # Invariant
+/// Guarantees `1 <= count <= MAX_MILESTONES` on return.
 pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
     if count == 0 {
         env.panic_with_error(EscrowError::EmptyMilestones);
@@ -86,6 +115,9 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
+///
+/// # Invariant
+/// Guarantees `bps <= MAX_FEE_BPS` on return.
 pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
     if bps > MAX_FEE_BPS {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -100,6 +132,9 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// # Panics
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
 /// [`EscrowError::InvalidMilestoneAmount`] when the amount exceeds the cap.
+///
+/// # Invariant
+/// Guarantees `0 < amount <= MAX_SINGLE_AMOUNT_STROOPS` on return.
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         env.panic_with_error(crate::EscrowError::AmountMustBePositive);
