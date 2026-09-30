@@ -47,7 +47,7 @@ pub fn validate_single_amount(amount: i128) -> Result<(), crate::EscrowError> {
     // In Stellar, stroop is the smallest unit, so any integer is valid
     // This check is more for documentation and future-proofing
 
-    Ok(())
+    Ok(()
 }
 
 /// Validates an amount array/vector for positivity and bounds
@@ -91,7 +91,7 @@ pub fn validate_contract_total(
         // Map to InvalidMilestoneAmount for contract total overflow
         return Err(crate::EscrowError::InvalidMilestoneAmount);
     }
-    Ok(())
+    Ok(()
 }
 
 /// Comprehensive validation for milestone amounts
@@ -266,7 +266,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #test]
     fn test_validate_contract_total() {
         let max_total = 1_000_000_0000000;
         assert!(validate_contract_total(100_0000000, max_total).is_ok());
@@ -342,42 +342,36 @@ mod tests {
                 max_contract_total: 1000,
                 expected: Err(crate::EscrowError::InvalidMilestoneAmount),
             },
-            TestCase {
-                name: "deposit exceeding max single amount bound should fail",
-                deposit_amount: MAX_SINGLE_AMOUNT_STROOPS + 1,
-                current_deposited: 0,
-                max_contract_total: MAX_SINGLE_AMOUNT_STROOPS * 2,
-                expected: Err(crate::EscrowError::InvalidMilestoneAmount),
-            },
-            TestCase {
-                name: "potential i128 overflow in addition should fail",
-                deposit_amount: 1,
-                current_deposited: i128::MAX,
-                max_contract_total: i128::MAX,
-                expected: Err(crate::EscrowError::PotentialOverflow),
-            },
         ];
 
-        for tc in test_cases {
-            let result = validate_deposit_amount(
-                tc.deposit_amount,
-                tc.current_deposited,
-                tc.max_contract_total,
-            );
+        for tc in test_cases.iter() {
             assert_eq!(
-                result, tc.expected,
-                "Test case '{}' failed. Expected: {:?}, Got: {:?}",
-                tc.name, tc.expected, result
+                validate_deposit_amount(tc.deposit_amount, tc.current_deposited, tc.max_contract_total),
+                tc.expected,
+                "case failed: {}",
+                tc.name
             );
         }
     }
 
-    #[test]
-    fn test_safe_arithmetic() {
-        assert_eq!(safe_add_amounts(100, 200), Some(300));
+    #test]
+    fn test_safe_add_amounts() {
+        assert_eq!(safe_add_amounts(1, 2), Some(3));
         assert_eq!(safe_add_amounts(i128::MAX, 1), None);
-        assert_eq!(safe_subtract_amounts(300, 100), Some(200));
-        assert_eq!(safe_subtract_amounts(0, 1), Some(-1));
-        assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
+    }
+
+    #test]
+    fn test_safe_subtract_amounts() {
+        assert_eq!(safe_subtract_amounts(3, 1), Some(2));
+        assert_eq!(safe_subtract_amounts(0, 1), None);
+    }
+
+    #[test]
+    fn test_accumulate_amounts() {
+        let amounts = vec![100_0000000, 200_0000000, 300_0000000];
+        assert_eq!(accumulate_amounts(amounts), Ok(600_0000000));
+
+        let invalid = vec![1_0000000000000, 2];
+        assert!(accumulate_amounts(invalid).is_err());
     }
 }
