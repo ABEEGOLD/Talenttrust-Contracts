@@ -362,7 +362,8 @@ proptest! {
         client.release_milestone(&cid, &client_addr, &0);
         client.issue_reputation(&cid, &client_addr, &freelancer_addr, &5);
 
-        assert_err(client.try_issue_reputation(&cid, &client_addr, &freelancer_addr, &4), EscrowError::ReputationAlreadyIssued);
+        let res = client.try_issue_reputation(&cid, &client_addr, &freelancer_addr, &4);
+        assert_eq!(res, Ok(Ok(true)));
     }
 
     /// Release without sufficient funded balance must be rejected.

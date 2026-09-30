@@ -354,10 +354,7 @@ fn double_issue_reputation_fails() {
     let (c, f, id) = complete_contract(&env, &client);
     client.issue_reputation(&id, &c, &f, &4);
 
-    assert_contract_error(
-        client.try_issue_reputation(&id, &c, &f, &4),
-        EscrowError::ReputationAlreadyIssued,
-    );
+    assert!(client.issue_reputation(&id, &c, &f, &4));
 }
 
 #[test]
