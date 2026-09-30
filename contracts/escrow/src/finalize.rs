@@ -154,23 +154,61 @@ impl Escrow {
 ///
 /// `finalizer` must authorize the call and must be the stored client,
 /// freelancer, or assigned arbiter. Finalization is allowed only while the
-/// contract is `Completed` or `Disputed`. Once finalized, future
-/// contract-specific mutations fail with `AlreadyFinalized`.
+/// contract is in a terminal state: `Completed`, `Disputed`, `Refunded`,
+/// or `Cancelled`. Once finalized, future contract-specific mutations
+/// fail with `AlreadyFinalized`.
 ///
 /// # Errors
 /// - `ContractPaused` when pause or emergency controls are active.
 /// - `ContractNotFound` when `contract_id` is unknown.
 /// - `AlreadyFinalized` when a close record already exists.
 /// - `UnauthorizedRole` when `finalizer` is not a contract participant.
-/// - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
+/// - `InvalidStatusTransition` unless status is a terminal state.
 pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -> bool {
     if Escrow::is_finalized(&env, contract_id) {
         env.panic_with_error(Error::AlreadyFinalized);
     }
 
     let contract = Escrow::load_contract_for_finalization(&env, contract_id);
-    if contract.status != ContractStatus::Completed && contract.status != ContractStatus::Disputed {
+
+    // Validate contract is in a terminal state eligible for finalization
+    let is_terminal = matches!(
+        contract.status,
+        ContractStatus::Completed
+            | ContractStatus::Disputed
+            | ContractStatus::Refunded
+            | ContractStatus::Cancelled
+    );
+    if !is_terminal {
         env.panic_with_error(EscrowError::InvalidStatusTransition);
+    }
+
+    // Validate accounting invariants before finalizing
+    let refundable_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|a| a.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    if refundable_balance < 0 {
+        env.panic_with_error(Error::AccountingInvariantViolated);
+    }
+
+    // For Completed contracts, verify all funds are accounted for
+    if contract.status == ContractStatus::Completed {
+        let total_accounted = contract
+            .released_amount
+            .checked_add(contract.refunded_amount)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        if total_accounted != contract.funded_amount {
+            env.panic_with_error(Error::AccountingInvariantViolated);
+        }
+    }
+
+    // For Refunded and Cancelled contracts, verify full refund
+    if contract.status == ContractStatus::Refunded || contract.status == ContractStatus::Cancelled {
+        if contract.refunded_amount != contract.funded_amount {
+            env.panic_with_error(Error::AccountingInvariantViolated);
+        }
     }
 
     Escrow::require_not_paused(&env);

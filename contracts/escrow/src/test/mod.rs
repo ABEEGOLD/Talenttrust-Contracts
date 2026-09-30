@@ -475,4 +475,4 @@ pub fn assert_contract_error<
     }
 }
 // Temporarily unwired: test::lifecycle::EscrowFixture / SetupConfig not yet defined in lifecycle.rs.
-// mod test_finalization_bug;
+mod test_finalization_bug;
