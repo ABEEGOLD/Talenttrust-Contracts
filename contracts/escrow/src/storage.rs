@@ -219,13 +219,20 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
 ///
 /// # Panics
 /// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
+/// Panics with [`Error::StaleNonce`] if the stored nonce is already at
+/// `u64::MAX`, since no further nonce can be accepted deterministically.
 pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
     let current: u64 = env
         .storage()
         .persistent()
         .get(&DataKey::AdminNonce)
         .unwrap_or(0);
-    let expected = current + 1;
+    // Deterministic overflow guard: once the counter reaches u64::MAX no
+    // further nonce can be consumed, so reject rather than wrap/panic.
+    let expected = match current.checked_add(1) {
+        Some(next) => next,
+        None => env.panic_with_error(Error::StaleNonce),
+    };
     if provided_nonce != expected {
         env.panic_with_error(Error::StaleNonce);
     }
@@ -644,6 +651,78 @@ mod tests {
             validate_contract_id_bounds(&env, 1);
             validate_contract_id_bounds(&env, 42);
             validate_contract_id_bounds(&env, u32::MAX);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_first_call_accepts_one() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_zero_on_first_call() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_duplicate_retry() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            // Retrying with the same nonce must be rejected deterministically.
+            consume_admin_nonce(&env, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_future_nonce() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 2);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_overflow_is_rejected() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::AdminNonce, &u64::MAX);
+            // No further nonce can be consumed; must reject, not wrap/panic.
+            consume_admin_nonce(&env, 0);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_sequential_calls_are_deterministic() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            consume_admin_nonce(&env, 2);
+            consume_admin_nonce(&env, 3);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 3);
         });
     }
 }
