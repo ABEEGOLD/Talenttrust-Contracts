@@ -320,6 +320,7 @@ fn check_release_monotonicity(
     let ms_after = try_get_milestone(client, contract_id, milestone_index)
         .expect("milestone should exist");
     assert!(
+        !release_ok || ms_after.released,
         ms_after.released >= released_before,
         "Release flag should be monotonic (only false->true): before={}, after={}",
         released_before,
