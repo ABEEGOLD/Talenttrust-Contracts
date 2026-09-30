@@ -85,6 +85,7 @@ pub mod milestones_consts;
 mod refund_impl;
 mod release;
 mod reputation;
+mod reputation_migration;
 mod rollback;
 mod schema_migration;
 mod settlement;
@@ -134,6 +135,7 @@ pub use types::{
     Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary, PauseScope, PauseTarget,
     PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
     SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
+    REPUTATION_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -2290,6 +2292,13 @@ impl Escrow {
         rep.total_rating += rating as i128;
         rep.last_rating = rating as i128;
         env.storage().persistent().set(&rep_key, &rep);
+        env.storage().persistent().extend_ttl(
+            &rep_key,
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+        // Stamp v2 so fresh writes never regress to marker-less v1.
+        reputation_migration::write_reputation_version(&env, &contract.freelancer);
 
         // If this is the first reputation record for this address, append it to the
         // reputations index for enumerations.
@@ -2341,10 +2350,22 @@ impl Escrow {
         comment
     }
 
+    // Read-only view over reputation records. Never mutates storage so RPC
+    // simulations stay side-effect free. Use `migrate_reputation_storage` for
+    // explicit v1→v2 upgrades.
     pub fn get_reputation(env: Env, address: Address) -> Option<types::Reputation> {
         env.storage()
             .persistent()
             .get(&DataKey::Reputation(address))
+    }
+
+    // Explicit, permissionless v1→v2 migration for a reputation record.
+    //
+    // Invariants: absent record → `false` with zero writes; already-current or
+    // future version → `false` untouched; v1 with record → `true` with fields
+    // preserved exactly. Idempotent across retries / concurrent calls.
+    pub fn migrate_reputation_storage(env: Env, address: Address) -> bool {
+        reputation_migration::migrate_reputation_storage_impl(&env, &address)
     }
 
     // Returns the freelancer's average rating scaled to basis points (Ã—10 000),

@@ -1,5 +1,6 @@
 use crate::types::ReputationConfig;
 use crate::{
+    reputation_migration::write_reputation_version,
     ttl, types, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, PAGE_CEILING,
 };
 use soroban_sdk::{Address, Env, String, Symbol, Vec};
@@ -155,6 +156,13 @@ pub(crate) fn issue_reputation(
     rep.total_rating += rating as i128;
     rep.last_rating = rating as i128;
     env.storage().persistent().set(&rep_key, &rep);
+    env.storage().persistent().extend_ttl(
+        &rep_key,
+        ttl::PERSISTENT_BUMP_THRESHOLD,
+        ttl::PERSISTENT_TTL_LEDGERS,
+    );
+    // Stamp v2 so fresh writes never regress to marker-less v1.
+    write_reputation_version(env, &contract.freelancer);
 
     if first_write {
         let mut idx: Vec<Address> = env
