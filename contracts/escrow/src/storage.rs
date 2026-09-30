@@ -1,4 +1,5 @@
 //! Centralized storage precondition checks and contract loading helpers.
+//! Centralized storage precondition checks and contract loading helpers.
 //!
 //! This module extracts repeated storage validation patterns into a single source
 //! of truth, ensuring consistent error handling and reducing code duplication across
@@ -8,11 +9,13 @@ use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Symbol, Vec};
 
 /// Validate that contract_id is within numeric bounds (non-zero).
+/// Validate that contract_id is within numeric bounds (non-zero).
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
+        // Zero is reserved as an invalid sentinel; surface as ContractNotFound.
         env.panic_with_error(EscrowError::ContractNotFound);
     }
 }
@@ -32,6 +35,7 @@ pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
 /// # Returns
 /// `true` if initialized, or panics with `NotInitialized`
 pub(crate) fn require_initialized(env: &Env) -> bool {
+    // Treat missing flag as uninitialized to preserve upgrade compatibility.
     env.storage()
         .persistent()
         .get::<_, bool>(&DataKey::Initialized)
@@ -57,6 +61,7 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// # Returns
 /// The loaded `Contract` or panics with `ContractNotFound`
 pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
+    // Bounds check first so zero never reaches storage.
     validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
@@ -80,6 +85,7 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// # Returns
 /// The loaded milestone vector or panics with `ContractNotFound`
 pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milestone> {
+    // Bounds check first so zero never reaches storage.
     validate_contract_id_bounds(env, contract_id);
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
@@ -115,6 +121,7 @@ pub(crate) fn load_contract_checked(
     check_paused: bool,
     check_finalized: bool,
 ) -> Contract {
+    // Bounds check first so zero never reaches storage.
     validate_contract_id_bounds(env, contract_id);
     if check_paused {
         require_not_paused(env);
@@ -141,6 +148,7 @@ pub(crate) fn load_contract_checked(
 /// # Returns
 /// `true` if neither pause nor emergency is active, or panics
 pub(crate) fn require_not_paused(env: &Env) -> bool {
+    // Legacy boolean pause acts as Global.
     if env
         .storage()
         .persistent()
@@ -149,6 +157,7 @@ pub(crate) fn require_not_paused(env: &Env) -> bool {
     {
         env.panic_with_error(Error::ContractPaused);
     }
+    // Emergency always blocks everything.
     if env
         .storage()
         .persistent()
@@ -170,6 +179,7 @@ pub(crate) fn require_not_paused(env: &Env) -> bool {
 /// The legacy bare `bool` under `DataKey::Paused` is also checked for backward
 /// compatibility — it acts as a `Global` pause.
 pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
+    // Legacy boolean pause acts as Global.
     // Legacy boolean pause acts as Global
     if env
         .storage()
@@ -180,6 +190,7 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
         env.panic_with_error(Error::ContractPaused);
     }
 
+    // Emergency always blocks everything.
     // Emergency always blocks everything
     if env
         .storage()
@@ -190,6 +201,7 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
         env.panic_with_error(Error::EmergencyActive);
     }
 
+    // Scoped pause.
     // Scoped pause
     if let Some(scope) = env
         .storage()
@@ -220,6 +232,7 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
 /// # Panics
 /// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
 pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
+    // Zero means uninitialized; first expected nonce is 1.
     let current: u64 = env
         .storage()
         .persistent()
@@ -229,6 +242,7 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
     if provided_nonce != expected {
         env.panic_with_error(Error::StaleNonce);
     }
+    // Persist the consumed nonce so replays are rejected.
     env.storage()
         .persistent()
         .set(&DataKey::AdminNonce, &expected);
@@ -243,6 +257,7 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
 /// # Returns
 /// `true` if the contract is finalized
 pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
+    // Bounds check first so zero never reaches storage.
     validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
@@ -262,6 +277,7 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// # Returns
 /// `true` if not finalized, or panics
 pub(crate) fn require_not_finalized(env: &Env, contract_id: u32) -> bool {
+    // Bounds check first so zero never reaches storage.
     validate_contract_id_bounds(env, contract_id);
     if is_finalized(env, contract_id) {
         env.panic_with_error(Error::AlreadyFinalized);

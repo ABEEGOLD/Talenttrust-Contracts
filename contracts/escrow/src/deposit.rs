@@ -2,11 +2,12 @@ use crate::{
     accumulate_amounts, amount_validation::validate_single_amount, keys, ttl, Contract,
     ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
+fun crate::types::DepositMode;
 use soroban_sdk::{Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
-    pub contract: Contract,
+    public contract: Contract,
     pub new_funded_amount: i128,
     pub new_total_deposited: i128,
     pub total_amount: i128,
@@ -83,6 +84,20 @@ pub fn validate_deposit(
 
     if new_funded_amount > total_amount {
         env.panic_with_error(Error::AmountMustBePositive);
+    }
+
+    // Enforce the contract's configured deposit mode. ExactTotal contracts
+    // require a single deposit that exactly matches the milestone total.
+    // Incremental contracts allow any number of deposits up to the total.
+    match contract.deposit_mode {
+        crate::types::DepositMode::ExactTotal => {
+            if amount != total_amount {
+                env.panic_with_error(EscrowError::ExactDepositRequired);
+            }
+        }
+        crate::types::DepositMode::Incremental => {
+            // Total cap already enforced above via `new_funded_amount > total_amount`.
+        }
     }
 
     ValidatedDeposit {
