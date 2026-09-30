@@ -338,11 +338,13 @@ impl Escrow {
         current_client: Address,
         new_client: Address,
     ) -> bool {
+        Self::require_initialized(&env);
         Self::require_not_paused(&env);
         Self::propose_client_migration_impl(&env, contract_id, current_client, new_client)
     }
 
     pub fn accept_client_migration(env: Env, contract_id: u32, new_client: Address) -> bool {
+        Self::require_initialized(&env);
         Self::require_not_paused(&env);
         Self::accept_client_migration_impl(&env, contract_id, new_client)
     }
@@ -352,6 +354,7 @@ impl Escrow {
     }
 
     pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+        Self::require_initialized(&env);
         Self::get_pending_client_migration_impl(&env, contract_id)
     }
 

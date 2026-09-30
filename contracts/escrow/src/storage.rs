@@ -81,6 +81,16 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// The loaded milestone vector or panics with `ContractNotFound`
 pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milestone> {
     validate_contract_id_bounds(env, contract_id);
+    // Invariant: milestones cannot exist without their parent contract.
+    // Verify the contract record first so a stale/orphaned milestone vector
+    // cannot be read after the contract has been removed or never created.
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKey::Contract(contract_id))
+    {
+        env.panic_with_error(Error::ContractNotFound);
+    }
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
         .persistent()
@@ -225,6 +235,11 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
         .persistent()
         .get(&DataKey::AdminNonce)
         .unwrap_or(0);
+    // Invariant: the admin nonce is strictly monotonic and must never wrap.
+    // Refuse to advance past u64::MAX so a replay window cannot be reopened.
+    if current == u64::MAX {
+        env.panic_with_error(Error::StaleNonce);
+    }
     let expected = current + 1;
     if provided_nonce != expected {
         env.panic_with_error(Error::StaleNonce);
@@ -346,6 +361,36 @@ mod tests {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             load_milestones(&env, 999);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_milestones_orphaned_vector_rejected() {
+        // Regression: a milestone vector must not be readable when its
+        // parent contract record is absent. This protects the invariant
+        // that milestones and their contract are always co-present.
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let milestone_key = Symbol::new(&env, "milestones");
+            env.storage()
+                .persistent()
+                .set(&(DataKey::Contract(42), milestone_key), &milestones);
+
+            // No DataKey::Contract(42) written — must still panic.
+            load_milestones(&env, 42);
         });
     }
 
@@ -644,6 +689,53 @@ mod tests {
             validate_contract_id_bounds(&env, 1);
             validate_contract_id_bounds(&env, 42);
             validate_contract_id_bounds(&env, u32::MAX);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_first_call() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_replay() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            // Replaying the same nonce must be rejected.
+            consume_admin_nonce(&env, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_future() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 5);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_overflow_guard() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::AdminNonce, &u64::MAX);
+            // Must refuse to advance past u64::MAX rather than wrap to 0.
+            consume_admin_nonce(&env, 0);
         });
     }
 }
