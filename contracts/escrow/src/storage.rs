@@ -3,6 +3,8 @@
 //! This module extracts repeated storage validation patterns into a single source
 //! of truth, ensuring consistent error handling and reducing code duplication across
 //! entrypoints. All contract loading operations should route through these helpers.
+//! Failure recovery is deterministic: all reads are side-effect free, and all
+//! mutations are committed atomically or not at all.
 
 use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Symbol, Vec};
@@ -32,6 +34,8 @@ pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
 /// # Returns
 /// `true` if initialized, or panics with `NotInitialized`
 pub(crate) fn require_initialized(env: &Env) -> bool {
+    // Read-only precondition check: no state is mutated, so a failure here
+    // leaves storage untouched and the caller can safely retry.
     env.storage()
         .persistent()
         .get::<_, bool>(&DataKey::Initialized)
@@ -57,6 +61,8 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// # Returns
 /// The loaded `Contract` or panics with `ContractNotFound`
 pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
+    // Deterministic read: bounds are validated before any storage access so
+    // invalid inputs cannot partially mutate or observe inconsistent state.
     validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
@@ -80,6 +86,8 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// # Returns
 /// The loaded milestone vector or panics with `ContractNotFound`
 pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milestone> {
+    // Deterministic read: validate bounds first, then perform a single
+    // storage lookup. No partial writes are possible on failure.
     validate_contract_id_bounds(env, contract_id);
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
@@ -115,6 +123,9 @@ pub(crate) fn load_contract_checked(
     check_paused: bool,
     check_finalized: bool,
 ) -> Contract {
+    // Order matters for determinism: bounds -> pause -> load -> finalization.
+    // Each step is a pure read, so any failure aborts before any mutation and
+    // leaves the contract in a recoverable, consistent state.
     validate_contract_id_bounds(env, contract_id);
     if check_paused {
         require_not_paused(env);
@@ -141,6 +152,8 @@ pub(crate) fn load_contract_checked(
 /// # Returns
 /// `true` if neither pause nor emergency is active, or panics
 pub(crate) fn require_not_paused(env: &Env) -> bool {
+    // Pure read-only guard. Safe to retry after the pause/emergency flag is
+    // cleared; no state is modified on the failure path.
     if env
         .storage()
         .persistent()
@@ -170,6 +183,8 @@ pub(crate) fn require_not_paused(env: &Env) -> bool {
 /// The legacy bare `bool` under `DataKey::Paused` is also checked for backward
 /// compatibility — it acts as a `Global` pause.
 pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
+    // Read-only guard. Deterministic ordering: legacy pause, emergency, then
+    // scoped pause. Failure leaves storage unchanged and is retryable.
     // Legacy boolean pause acts as Global
     if env
         .storage()
@@ -220,6 +235,9 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
 /// # Panics
 /// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
 pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
+    // Validate-then-write: the nonce is only persisted after the provided value
+    // matches the expected value. A mismatch aborts before any write, so a
+    // retry with the correct nonce is safe and no partial state is left behind.
     let current: u64 = env
         .storage()
         .persistent()
@@ -243,6 +261,8 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
 /// # Returns
 /// `true` if the contract is finalized
 pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
+    // Pure read-only check. Bounds are validated first so invalid IDs cannot
+    // observe or mutate unrelated storage entries.
     validate_contract_id_bounds(env, contract_id);
     env.storage()
         .persistent()
@@ -262,6 +282,8 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// # Returns
 /// `true` if not finalized, or panics
 pub(crate) fn require_not_finalized(env: &Env, contract_id: u32) -> bool {
+    // Read-only guard. Deterministic and side-effect free on both success and
+    // failure paths, so callers can safely retry after resolving the conflict.
     validate_contract_id_bounds(env, contract_id);
     if is_finalized(env, contract_id) {
         env.panic_with_error(Error::AlreadyFinalized);
@@ -644,6 +666,84 @@ mod tests {
             validate_contract_id_bounds(&env, 1);
             validate_contract_id_bounds(&env, 42);
             validate_contract_id_bounds(&env, u32::MAX);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_first_call_succeeds() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap_or(0);
+            assert_eq!(stored, 1);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_sequential_calls_succeed() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            consume_admin_nonce(&env, 2);
+            consume_admin_nonce(&env, 3);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap_or(0);
+            assert_eq!(stored, 3);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_stale_rejected() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            // Replay of the same nonce must be rejected.
+            consume_admin_nonce(&env, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_future_rejected() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            // Skipping ahead must be rejected; expected is 1.
+            consume_admin_nonce(&env, 5);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_failure_leaves_state_unchanged() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            let before: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap_or(0);
+            assert_eq!(before, 1);
+
+            // Attempt a stale nonce; the panic must not advance the stored value.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                consume_admin_nonce(&env, 1);
+            }));
+            assert!(result.is_err());
+
+            let after: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap_or(0);
+            assert_eq!(after, before, "failed nonce consumption must not mutate state");
         });
     }
 }

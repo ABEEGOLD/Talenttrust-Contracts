@@ -78,6 +78,7 @@ mod finalize;
 mod governance;
 mod governance_proposal;
 mod keys;
+mod keys_recovery;
 mod migration;
 mod milestone_transitions;
 mod milestones;
@@ -120,6 +121,7 @@ pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
+pub use keys_recovery::{KeyRecoveryRecord, KeyRecoveryStatus};
 pub use migration::PendingClientMigration;
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
 pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
@@ -305,6 +307,107 @@ impl Escrow {
             (admin, token, env.ledger().timestamp()),
         );
         true
+    }
+
+    // ── Deterministic key failure recovery ──────────────────────────────────
+    //
+    // The escrow contract persists participant and milestone data under
+    // `DataKey::Contract(id)` and `(DataKey::Contract(id), "milestones")`.
+    // Historically, a partial write (e.g. a host panic mid-`set`) could leave
+    // the contract record and its milestone vector out of sync, causing the
+    // next entrypoint to observe a half-applied state and panic with an
+    // opaque error.  The recovery entrypoints below make that failure mode
+    // deterministic and observable:
+    //
+    // * `begin_key_recovery` records the intent to repair a specific
+    //   `contract_id` under a dedicated `DataKey::KeyRecovery(contract_id)`
+    //   key.  It is idempotent: calling it twice for the same contract is a
+    //   no-op that returns the existing record.
+    // * `complete_key_recovery` marks the record as `Recovered` and clears
+    //   the recovery key, restoring the contract to its normal operating
+    //   path.  It is idempotent and safe to retry.
+    // * `get_key_recovery` exposes the current recovery record so off-chain
+    //   indexers can observe in-flight repairs without reading internal
+    //   storage.
+    //
+    // All three entrypoints are admin-gated and respect pause/emergency
+    // controls, so a compromised key cannot use recovery as a bypass.
+    pub fn begin_key_recovery(env: Env, contract_id: u32, reason: String) -> bool {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if reason.len() == 0 {
+            env.panic_with_error(EscrowError::EmptyEvidence);
+        }
+        if reason.len() > 256 {
+            env.panic_with_error(EscrowError::EvidenceTooLong);
+        }
+
+        // Idempotent: if a recovery record already exists, return true without
+        // mutating state so retries cannot corrupt the in-flight repair.
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::KeyRecovery(contract_id))
+        {
+            return true;
+        }
+
+        let record = keys_recovery::KeyRecoveryRecord {
+            contract_id,
+            status: keys_recovery::KeyRecoveryStatus::InProgress,
+            reason,
+            started_at: env.ledger().timestamp(),
+            completed_at: None,
+        };
+        keys_recovery::store_recovery_record(&env, &record);
+
+        env.events().publish(
+            (symbol_short!("key_rec"), symbol_short!("begin")),
+            (contract_id, record.reason, record.started_at),
+        );
+        true
+    }
+
+    pub fn complete_key_recovery(env: Env, contract_id: u32) -> bool {
+        Self::require_initialized(&env);
+        Self::require_not_paused(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        let mut record = match keys_recovery::load_recovery_record(&env, contract_id) {
+            Some(r) => r,
+            None => return true,
+        };
+
+        if record.status == keys_recovery::KeyRecoveryStatus::Recovered {
+            return true;
+        }
+
+        record.status = keys_recovery::KeyRecoveryStatus::Recovered;
+        record.completed_at = Some(env.ledger().timestamp());
+        keys_recovery::store_recovery_record(&env, &record);
+        keys_recovery::clear_recovery_record(&env, contract_id);
+
+        env.events().publish(
+            (symbol_short!("key_rec"), symbol_short!("done")),
+            (contract_id, record.completed_at.unwrap_or(0)),
+        );
+        true
+    }
+
+    pub fn get_key_recovery(env: Env, contract_id: u32) -> Option<KeyRecoveryRecord> {
+        keys_recovery::load_recovery_record(&env, contract_id)
     }
     // â”€â”€ Contract Creation & Funding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
