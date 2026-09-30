@@ -1,39 +1,39 @@
 //! Per-milestone refund implementation for the TalentTrust escrow contract.
-//!
-//! This module provides the `refund_unreleased_milestones` functionality that allows
-//! clients to refund specific unreleased milestones back to their account.
-//!
-//! # Security Guarantees
-//!
-//! - **Authorization**: Only the client can initiate refunds (enforced via `require_auth()`)
-//! - **Atomicity**: All validations occur before any state changes
-//! - **Idempotency**: Refunded milestones cannot be refunded again
-//! - **Balance Protection**: Verifies sufficient balance before processing
-//! - **State Machine Integrity**: Respects contract lifecycle, cannot refund released milestones
-//!
-//! # Validation Guards
-//!
-//! - `EmptyRefundRequest`: Rejects empty milestone index vectors
-//! - `DuplicateMilestoneInRefund`: Prevents duplicate indices in a single request
-//! - `AlreadyReleased`: Cannot refund milestones that were already released
-//! - `AlreadyRefunded`: Cannot refund the same milestone twice
-//! - `InsufficientFunds`: Ensures contract has enough balance to process refund
-//!
-//! # Accounting Invariant
-//!
-//! The implementation maintains:
-//! ```text
-//! funded_amount = released_amount + refunded_amount + available_balance
-//! ```
-//!
-//! # Status Transitions
-//!
-//! - **Funded → Refunded**: All unreleased milestones refunded (no releases)
-//! - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
-//! - **Funded → Completed**: All milestones either released or refunded (mixed state)
+///
+/// This module provides the `refund_unreleased_milestones` functionality that allows
+/// clients to refund specific unreleased milestones back to their account.
+///
+/// # Security Guarantees
+///
+/// - **Authorization**: Only the client can initiate refunds (enforced via `require_auth()`)
+/// - **Atomicity**: All validations occur before any state changes
+/// - **Idempotency**: Refunded milestones cannot be refunded again
+/// - **Balance Protection**: Verifies sufficient balance before processing
+/// - **State Machine Integrity**: Respects contract lifecycle, cannot refund released milestones
+///
+/// # Validation Guards
+///
+/// - `EmptyRefundRequest`: Rejects empty milestone index vectors
+/// - `DuplicateMilestoneInRefund`: Prevents duplicate indices in a single request
+/// - `AlreadyReleased`: Cannot refund milestones that were already released
+/// - `AlreadyRefunded`: Cannot refund the same milestone twice
+/// - `InsufficientFunds`: Ensures contract has enough balance to process refund
+///
+/// # Accounting Invariant
+///
+/// The implementation maintains:
+/// ```text
+/// funded_amount = released_amount + refunded_amount + available_balance
+/// ```
+///
+/// # Status Transitions
+///
+/// - **Funded → Refunded**: All unreleased milestones refunded (no releases)
+/// - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
+/// - **Funded → Completed**: All milestones either released or refunded (mixed state)
 
 use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
-use soroban_sdk::{Env, Vec};
+use soroban_sdk:{Env, Vec};
 
 /// Refunds unreleased milestones back to the client.
 ///
@@ -82,7 +82,7 @@ pub fn refund_unreleased_milestones(
         .storage()
         .persistent()
         .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        .unwrap_or_else(<| env.panic_with_error(EscrowError::ContractNotFound));
 
     // Authorization: Only client can refund
     contract.client.require_auth();
@@ -111,7 +111,7 @@ pub fn refund_unreleased_milestones(
         .storage()
         .persistent()
         .get(&DataKey::SettlementToken)
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        .unwrap_or_else(<| env.panic_with_error(EscrowError::NotInitialized));
     let balance = soroban_sdk::token::Client::new(env, &token_address)
         .balance(&env.current_contract_address());
     if balance < total_refund_amount {
@@ -124,7 +124,7 @@ pub fn refund_unreleased_milestones(
     contract.refunded_amount = contract
         .refunded_amount
         .checked_add(total_refund_amount)
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        .unwrap_or_else(?| env.panic_with_error(EscrowError::PotentialOverflow));
     update_contract_status(&mut contract, &milestones);
 
     // Persist changes
@@ -187,7 +187,7 @@ fn validate_and_calculate_refund(
 
         total_refund_amount = total_refund_amount
             .checked_add(milestone.amount)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+            .unwrap_or_else(?| env.panic_with_error(EscrowError::PotentialOverflow));
     }
 
     total_refund_amount
@@ -198,8 +198,8 @@ fn check_sufficient_balance(env: &Env, contract: &Contract, refund_amount: i128)
     let available_balance = contract
         .funded_amount
         .checked_sub(contract.released_amount)
-        .and_then(|v| v.checked_sub(contract.refunded_amount))
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        .and_then(|v | v.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(<| env.panic_with_error(EscrowError::PotentialOverflow));
 
     if available_balance < refund_amount {
         env.panic_with_error(EscrowError::InsufficientFunds);
@@ -223,10 +223,10 @@ fn mark_milestones_refunded(milestones: &mut Vec<Milestone>, milestone_indices: 
 /// - If all milestones are either released or refunded → `Completed`
 /// - Otherwise → remains `Funded`
 fn update_contract_status(contract: &mut Contract, milestones: &Vec<Milestone>) {
-    let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
+    let all_refunded_or_released = milestones.iter().all(|m | m.released || m.refunded);
 
     if all_refunded_or_released {
-        let all_refunded = milestones.iter().all(|m| m.refunded);
+        let all_refunded = milestones.iter().all(|m | m.refunded);
         if all_refunded {
             contract.status = ContractStatus::Refunded;
         } else {
@@ -240,21 +240,170 @@ fn update_contract_status(contract: &mut Contract, milestones: &Vec<Milestone>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+    use soroban_sdk::{testutils::Address as_, vec, Address, Env};
+
+    fun milestone(env: &Env, amount: i128, released: bool, refunded: bool) -> Milestone {
+        Milestone {
+            amount,
+            released,
+            refunded,
+            approved: false,
+            description: soroban_sdk::Symbol::new(env, "m"),
+        }
+    }
+
+    fun contract(env: &Env, status: ContractStatus, funded: i128, released: i128, refunded: i128) -> Contract {
+        Contract {
+            client: Address::generate(env),
+            freelancer: Address::generate(env),
+            status,
+            funded_amount: funded,
+            released_amount: released,
+            refunded_amount: refunded,
+            deadline: 0,
+        }
+    }
+
+    // ----------------------------------------------------------------------------
+    // Duplicate detection
+    // ----------------------------------------------------------------------------
 
     #[test]
     fn test_check_no_duplicates_passes_for_unique_indices() {
         let env = Env::default();
-        let indices = vec![&env, 0_u32, 1_u32, 2_u32];
+        let indices = vec[&env, 0_u32, 1_u32, 2_u32];
         check_no_duplicates(&env, &indices);
         // Should not panic
     }
 
     #[test]
-    #[should_panic(expected = "DuplicateMilestoneInRefund")]
+    #should_panic(expected = "DuplicateMilestoneInRefund")
     fn test_check_no_duplicates_fails_for_duplicate_indices() {
         let env = Env::default();
-        let indices = vec![&env, 0_u32, 1_u32, 1_u32];
+        let indices = vec[&env, 0_u32, 1_u32, 1_u32];
         check_no_duplicates(&env, &indices);
+    }
+
+    // ----------------------------------------------------------------------------
+    // Validation and calculation
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn validate_calculates_sum_of_requested_milestones() {
+        let env = Env::default();
+        let milestones = vec![&env, milestone(&env, 100, false, false), milestone(&env, 200, false, false)];
+        let idx = vec[&env, 0_u32, 1_u32];
+        assert_eq!(validate_and_calculate_refund(&env, &milestones, &idx), 300);
+    }
+
+    #[test]
+    #should_panic(expected = "IndexOutOfBounds")
+    fn validate_rejects_out_of_bounds_index() {
+        let env = Env::default();
+        let milestones = vec!&env, milestone(&env, 100, false, false)];
+        let idx = vec!&env, 5_u32];
+        validate_and_calculate_refund(&env, &milestones, &idx);
+    }
+
+    #[test]
+    #should_panic(expected = "MilestoneAlreadyReleased")
+    fn validate_rejects_released_milestone() {
+        let env = Env::default();
+        let milestones = vec[&env, milestone(&env, 100, true, false)];
+        let idx = vec![&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &idx);
+    }
+
+    #[test]
+    #should_panic(expected = "AlreadyRefunded")
+    fn validate_rejects_already_refunded_milestone() {
+        let env = Env::default();
+        let milestones = vec!&env, milestone(&env, 100, false, true)];
+        let idx = vec[&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &idx);
+    }
+
+    // ----------------------------------------------------------------------------
+    // Balance checks
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn sufficient_balance_accepts_exact_available() {
+        let env = Env::default();
+        let c = contract(&env, ContractStatus::Funded, 1000, 200, 300);
+        // available = 1000 - 200 - 300 = 500
+        check_sufficient_balance(&env, &c, 500);
+    }
+
+    #[test]
+    #should_panic(expected = "InsufficientFunds")
+    fn sufficient_balance_rejects_over_available() {
+        let env = Env::default();
+        let c = contract(&env, ContractStatus::Funded, 1000, 200, 300);
+        check_sufficient_balance(&env, &c, 501);
+    }
+
+    #[test]
+    #should_panic(expected = "PotentialOverflow")
+    fn sufficient_balance_rejects_invarid_accounting() {
+        let env = Env::default();
+        // released + refunded > funded violates the accounting invariant
+        let c = contract(&env, ContractStatus::Funded, 100, 80, 80);
+        check_sufficient_balance(&env, &c, 1);
+    }
+
+    // ----------------------------------------------------------------------------
+    // Marking milestones
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn mark_milestones_refunded_only_touches_requested_indices() {
+        let env = Env::default();
+        let mut milestones = vec!&env,
+            milestone(&env, 100, false, false),
+            milestone(&env, 200, false, false),
+            milestone(&env, 300, false, false)];
+        let idx = vec!&env, 1_u32];
+        mark_milestones_refunded(&mut milestones, &idx);
+        assert!(!milestones.get(0).unwrap().refunded);
+        assert!(milestones.get(1).unwrap().refunded);
+        assert!(!milestones.get(2).unwrap().refunded);
+    }
+
+    // ----------------------------------------------------------------------------
+    // Status transitions
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn status_becomes_refunded_when_all_refunded() {
+        let env = Env::default();
+        let mut c = contract(&env, ContractStatus::Funded, 300, 0, 0);
+        let milestones = vec!&env,
+            milestone(&env, 100, false, true),
+            milestone(&env, 200, false, true)];
+        update_contract_status(&mut c, &milestones);
+        assert_eq!(c.status, ContractStatus::Refunded);
+    }
+
+    #[test]
+    fn status_becomes_completed_on_mixed_release_and_refund() {
+        let env = Env::default();
+        let mut c = contract(&env, ContractStatus::Funded, 300, 100, 200);
+        let milestones = vec![&env,
+            milestone(&env, 100, true, false),
+            milestone(&env, 200, false, true)];
+        update_contract_status(&mut c, &milestones);
+        assert_eq!(c.status, ContractStatus::Completed);
+    }
+
+    #[test]
+    fn status_remains_funded_when_milestones_remain() {
+        let env = Env::default();
+        let mut c = contract(&env, ContractStatus::Funded, 300, 0, 100);
+        let milestones = vec!&env,
+            milestone(&env, 100, false, true),
+            milestone(&env, 200, false, false)];
+        update_contract_status(&mut c, &milestones);
+        assert_eq!(c.status, ContractStatus::Funded);
     }
 }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Lifecycle invariant tests for the TalentTrust escrow contract.
 //!
 //! These tests verify that deposits, releases, refunds, and balances reconcile
@@ -126,6 +127,7 @@ fn assert_accounting_invariant(escrow: &EscrowClient<'_>, contract_id: u32) {
 /// **Single-contract variant**: only valid when the escrow contract hosts exactly
 /// one active escrow. For multi-contract tests, use
 /// `assert_token_conservation_multi` instead.
+#[allow(dead_code)]
 fn assert_token_conservation(escrow: &EscrowClient<'_>, token: &Address, contract_id: u32) {
     let env = escrow.env.clone();
     let c = escrow.get_contract(&contract_id);
@@ -154,6 +156,7 @@ fn assert_token_conservation(escrow: &EscrowClient<'_>, token: &Address, contrac
 ///
 /// Use this in multi-contract tests where the single-contract variant would
 /// incorrectly compare the escrow's total balance against one contract's portion.
+#[allow(dead_code)]
 fn assert_token_conservation_multi(
     escrow: &EscrowClient<'_>,
     token: &Address,
@@ -187,6 +190,7 @@ fn assert_token_conservation_multi(
 
 /// A single deposit followed by releasing every milestone transitions to
 /// `Completed` and leaves zero available balance.
+#[allow(dead_code)]
 #[test]
 fn deposit_then_full_release_reconciles() {
     let env = Env::default();
@@ -237,6 +241,7 @@ fn deposit_then_full_release_reconciles() {
 
 /// Depositing the full amount then refunding every milestone returns all tokens
 /// to the client and drives the contract to `Refunded`.
+#[allow(dead_code)]
 #[test]
 fn deposit_then_full_refund_reconciles() {
     let env = Env::default();
@@ -285,6 +290,7 @@ fn deposit_then_full_refund_reconciles() {
 
 /// Release some milestones, refund the rest. Final state is `Completed`.
 /// At each step the conservation invariant must hold.
+#[allow(dead_code)]
 #[test]
 fn partial_releases_then_refund_remainder_reconciles() {
     let env = Env::default();
@@ -337,6 +343,7 @@ fn partial_releases_then_refund_remainder_reconciles() {
 
 /// Incrementally refund milestones one at a time; invariants must hold
 /// after every individual refund call, not just at the final step.
+#[allow(dead_code)]
 #[test]
 fn incremental_partial_refunds_invariant_holds_at_each_step() {
     let env = Env::default();
@@ -398,6 +405,7 @@ fn incremental_partial_refunds_invariant_holds_at_each_step() {
 /// Security note: `resolve_dispute` updates accounting counters only; it does
 /// not execute token transfers. The escrow contract retains the on-chain balance
 /// after resolution. Withdrawals are handled separately.
+#[allow(dead_code)]
 #[test]
 fn dispute_then_full_refund_resolution_reconciles() {
     let env = Env::default();
@@ -453,6 +461,7 @@ fn dispute_then_full_refund_resolution_reconciles() {
 
 /// Dispute resolved with FullPayout — all balance is attributed to freelancer
 /// in accounting counters.
+#[allow(dead_code)]
 #[test]
 fn dispute_then_full_payout_resolution_reconciles() {
     let env = Env::default();
@@ -496,6 +505,7 @@ fn dispute_then_full_payout_resolution_reconciles() {
 
 /// Dispute resolved with a custom split — both sides receive their accounting share and
 /// released_amount + refunded_amount must equal the deposited amount.
+#[allow(dead_code)]
 #[test]
 fn dispute_then_split_resolution_reconciles() {
     let env = Env::default();
@@ -543,6 +553,7 @@ fn dispute_then_split_resolution_reconciles() {
 
 /// After dispute resolution, raising a new dispute on the same contract must
 /// fail (prevents re-opening resolved disputes).
+#[allow(dead_code)]
 #[test]
 fn dispute_resolution_is_terminal_cannot_re_raise() {
     let env = Env::default();
@@ -579,6 +590,7 @@ fn dispute_resolution_is_terminal_cannot_re_raise() {
 
 /// Two concurrent contracts with different participants never bleed state —
 /// operations on contract A must not affect the accounting of contract B.
+#[allow(dead_code)]
 #[test]
 fn multiple_escrows_are_isolated() {
     let env = Env::default();
@@ -656,6 +668,7 @@ fn multiple_escrows_are_isolated() {
 
 /// Three overlapping contracts with an arbiter and different authorization modes
 /// all operating concurrently; every invariant holds throughout.
+#[allow(dead_code)]
 #[test]
 fn multiple_escrows_with_arbiter_and_mixed_auth_modes() {
     let env = Env::default();
@@ -754,6 +767,7 @@ fn multiple_escrows_with_arbiter_and_mixed_auth_modes() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An outsider (neither client nor freelancer) cannot raise a dispute.
+#[allow(dead_code)]
 #[test]
 fn only_participant_can_raise_dispute() {
     let env = Env::default();
@@ -781,6 +795,7 @@ fn only_participant_can_raise_dispute() {
 }
 
 /// Only the designated arbiter may resolve a dispute.
+#[allow(dead_code)]
 #[test]
 fn only_arbiter_can_resolve_dispute() {
     let env = Env::default();
@@ -812,6 +827,7 @@ fn only_arbiter_can_resolve_dispute() {
 ///
 /// The escrow validates the caller against the stored `contract.client`
 /// before any token transfer, so the error surfaces as `UnauthorizedRole`.
+#[allow(dead_code)]
 #[test]
 fn only_client_can_deposit() {
     let env = Env::default();
@@ -844,6 +860,7 @@ fn only_client_can_deposit() {
 /// Security note: because `mock_all_auths_allowing_non_root_auth` is active, this
 /// test specifically verifies the *role* check in the implementation, not the
 /// cryptographic auth guard. The auth guard is exercised in the auth-matrix tests.
+#[allow(dead_code)]
 #[test]
 fn refund_rejects_already_refunded_milestone() {
     let env = Env::default();
@@ -876,6 +893,7 @@ fn refund_rejects_already_refunded_milestone() {
 
 /// After releasing a milestone (terminal per-milestone state), attempting to
 /// release it again must fail with `MilestoneAlreadyReleased`.
+#[allow(dead_code)]
 #[test]
 fn double_release_is_rejected() {
     let env = Env::default();
@@ -907,6 +925,7 @@ fn double_release_is_rejected() {
 }
 
 /// Double refund of the same milestone must fail with `AlreadyRefunded`.
+#[allow(dead_code)]
 #[test]
 fn double_refund_is_rejected() {
     let env = Env::default();
@@ -944,6 +963,7 @@ fn double_refund_is_rejected() {
 
 /// Depositing then immediately cancelling returns all tokens to the client and
 /// maintains the conservation invariant.
+#[allow(dead_code)]
 #[test]
 fn cancel_after_full_deposit_returns_all_tokens() {
     let env = Env::default();
@@ -978,6 +998,7 @@ fn cancel_after_full_deposit_returns_all_tokens() {
 
 /// Cancelling an unfunded contract (zero deposit) is a no-op for tokens but
 /// must still update status and preserve the conservation invariant.
+#[allow(dead_code)]
 #[test]
 fn cancel_unfunded_contract_is_token_noop() {
     let env = Env::default();
@@ -1008,6 +1029,7 @@ fn cancel_unfunded_contract_is_token_noop() {
 
 /// Over-depositing (more than the sum of all milestones) must be rejected and
 /// the invariant must still hold after the failed call.
+#[allow(dead_code)]
 #[test]
 fn over_deposit_is_rejected_and_invariant_preserved() {
     let env = Env::default();
@@ -1042,6 +1064,7 @@ fn over_deposit_is_rejected_and_invariant_preserved() {
 /// Zero-amount deposit must be rejected; the invariant remains intact.
 ///
 /// The validation rejects zero before any token transfer occurs.
+#[allow(dead_code)]
 #[test]
 fn zero_deposit_is_rejected() {
     let env = Env::default();
@@ -1067,6 +1090,7 @@ fn zero_deposit_is_rejected() {
 ///
 /// The contract remains in `Created` state (not `Funded`) so `release_milestone`
 /// must reject with `InvalidState`.
+#[allow(dead_code)]
 #[test]
 fn release_without_deposit_is_rejected() {
     let env = Env::default();
@@ -1090,6 +1114,7 @@ fn release_without_deposit_is_rejected() {
 
 /// Out-of-range milestone index must be rejected with `IndexOutOfBounds` and
 /// leave accounting untouched.
+#[allow(dead_code)]
 #[test]
 fn release_out_of_range_milestone_is_rejected() {
     let env = Env::default();
@@ -1121,6 +1146,7 @@ fn release_out_of_range_milestone_is_rejected() {
 
 /// After a complete deposit → release lifecycle, the stored contract fields
 /// round-trip correctly through `get_contract`, confirming storage is stable.
+#[allow(dead_code)]
 #[test]
 fn get_contract_round_trips_accounting_fields_after_lifecycle() {
     let env = Env::default();
@@ -1162,6 +1188,7 @@ fn get_contract_round_trips_accounting_fields_after_lifecycle() {
 
 /// Error codes returned by typed-error paths must remain stable (not change
 /// between invocations), so callers can rely on numeric codes for categorisation.
+#[allow(dead_code)]
 #[test]
 fn typed_errors_are_stable_across_repeated_calls() {
     let env = Env::default();
@@ -1210,6 +1237,7 @@ fn typed_errors_are_stable_across_repeated_calls() {
 
 /// Exercise the complete happy-path lifecycle including finalization.
 /// Conservation invariants must hold at every step.
+#[allow(dead_code)]
 #[test]
 fn full_lifecycle_deposit_partial_release_partial_refund_then_finalize() {
     let env = Env::default();
