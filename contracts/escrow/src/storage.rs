@@ -13,7 +13,7 @@ use soroban_sdk::{Env, Symbol, Vec};
 /// - `InvalidContractId` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
-        env.panic_with_error(EscrowError::ContractNotFound);
+        env.panic_with_error(Error::InvalidContractId);
     }
 }
 
@@ -32,13 +32,15 @@ pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
 /// # Returns
 /// `true` if initialized, or panics with `NotInitialized`
 pub(crate) fn require_initialized(env: &Env) -> bool {
-    env.storage()
+    let initialized = env
+        .storage()
         .persistent()
         .get::<_, bool>(&DataKey::Initialized)
-        .unwrap_or(false)
-        .then_some(true)
-        .ok_or(Error::NotInitialized)
-        .unwrap_or_else(|err| env.panic_with_error(err))
+        .unwrap_or(false);
+    if !initialized {
+        env.panic_with_error(Error::NotInitialized);
+    }
+    true
 }
 
 /// Load a contract from persistent storage.
