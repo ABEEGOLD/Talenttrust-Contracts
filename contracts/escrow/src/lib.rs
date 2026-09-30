@@ -103,12 +103,15 @@ use soroban_sdk::{
 };
 
 pub use amount_validation::accumulate_amounts;
+pub use amount_validation::classify_amount;
 pub use amount_validation::safe_add_amounts;
 pub use amount_validation::safe_subtract_amounts;
 pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
+pub use amount_validation::AmountBoundary;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+pub use amount_validation::MIN_POSITIVE_AMOUNT;
 pub use constants::PAGE_CEILING;
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
