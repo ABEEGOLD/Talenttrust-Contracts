@@ -1,6 +1,8 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
+pub mod proptest;
+
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
@@ -39,6 +41,7 @@ mod release;
 mod release_authorization;
 mod reputation;
 mod reputation_config_setter;
+mod proptest_invariants;
 mod rollback;
 mod security;
 mod test_pause_scope;

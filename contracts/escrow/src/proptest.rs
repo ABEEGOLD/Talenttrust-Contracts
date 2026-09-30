@@ -1,4 +1,4 @@
-//! Property-based tests for the escrow accounting invariant.
+//! Property-based tests for the escrow accounting and state invariants.
 //!
 //! Drives random sequences of `deposit_funds`, `approve_milestone_release`,
 //! `release_milestone`, and `refund_unreleased_milestones` against the live
@@ -9,6 +9,11 @@
 //! Also asserts that:
 //! - `funded_amount` is never exceeded by `released + refunded`
 //! - Status transitions are monotone and eventually reach a terminal state
+//! - Terminal states (Completed, Refunded, Cancelled) are absorbing: no
+//!   operation may change the status once a terminal state is reached.
+//! - `released_amount` and `refunded_amount` are monotone non-decreasing.
+//! - `funded_amount` is monotone non-decreasing and never exceeds the
+//!   contract's declared total milestone sum.
 //!
 //! ## Running
 //!
