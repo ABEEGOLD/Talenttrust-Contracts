@@ -127,8 +127,17 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Kind: Mutating
 - Auth: `caller.require_auth()`
 - Semantics: Stores a milestone approval record for the caller. The approval is temporary and expires according to the configured TTL.
-- Events: None (approval records are stored in temporary storage)
+- Events: `("mlstn_app", contract_id)` with `(milestone_index, caller, timestamp)`
 - Errors: `ContractNotFound`, `AlreadyFinalized`, `InvalidState`, `IndexOutOfBounds`, `AlreadyApproved`, `InsufficientApprovals`, `ApprovalExpired` (if the implementation surface uses it), `UnauthorizedRole`
+
+### revoke_milestone_approval
+
+- Signature: `revoke_milestone_approval(env: Env, contract_id: u32, caller: Address, milestone_index: u32) -> bool`
+- Kind: Mutating
+- Auth: `caller.require_auth()`
+- Semantics: Removes only the caller's approval from an unreleased milestone. Other participants' approvals remain; an empty record is removed.
+- Events: `("revoked",)` with `(contract_id, milestone_index, caller)`
+- Errors: `ContractPaused`, `EmergencyActive`, `AlreadyFinalized`, `ContractNotFound`, `IndexOutOfBounds`, `MilestoneAlreadyReleased`, `UnauthorizedRole`, `InsufficientApprovals`
 
 ### release_milestone
 
