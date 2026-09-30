@@ -1,13 +1,13 @@
 use crate::types::Contract;
 use crate::EscrowError;
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk:{symbol_short, Address, Env};
 
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInput {
-    pub topic: soroban_sdk::Symbol,
+    pub topic: soroban_sdk:Symbol,
     pub contract_id: u32,
-    pub data: soroban_sdk::Symbol,
+    pub data: soroban_sdk:Symbol,
 }
 
 /// Maximum number of events processed in a batch operations.
@@ -17,8 +17,7 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("contract"), contract_id: u32)`
-/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`
+/// - `(contract_id, status, funded_amount, released_amount, refunded_amount, total_deposited)`
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
@@ -66,7 +65,7 @@ pub(crate) fn validate_event_amounts(
 ///
 /// # Event Specification
 /// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
-/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`
+/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`"
 pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
@@ -88,7 +87,7 @@ pub fn emit_dispute_opened_event(
 /// Emits an indexed event when a dispute is resolved.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`"
 /// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
 pub fn emit_dispute_resolved_event(
     env: &Env,
@@ -178,7 +177,7 @@ pub fn emit_work_evidence_submitted_event(
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk::String,
+    evidence: &soroban_sdk:Symbol,
 ) {
     env.events().publish(
         (symbol_short!("milestone"), symbol_short!("evidence")),
