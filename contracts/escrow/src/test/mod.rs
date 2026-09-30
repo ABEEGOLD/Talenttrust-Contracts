@@ -1,4 +1,3 @@
-#![cfg(test)]
 #![allow(dead_code)]
 
 pub use soroban_sdk::testutils::Address as _;
