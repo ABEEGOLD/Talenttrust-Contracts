@@ -1064,12 +1064,21 @@ impl Escrow {
     // contract is `Completed` or `Disputed`. Once finalized, future
     // contract-specific mutations fail with `AlreadyFinalized`.
     //
+    // The close record is immutable, so the summary is fully validated before
+    // anything is written: a rejected call leaves the contract unfinalized and
+    // retryable, and retries always fail the same way. See the `finalize`
+    // module documentation for the full failure model and invariants.
+    //
     // # Errors
-    // - `ContractPaused` when pause or emergency controls are active.
-    // - `ContractNotFound` when `contract_id` is unknown.
+    // - `ContractNotFound` when `contract_id` is zero or unknown.
     // - `AlreadyFinalized` when a close record already exists.
+    // - `ContractPaused` when pause or emergency controls are active.
+    // - `EmergencyActive` when emergency controls are active.
     // - `UnauthorizedRole` when `finalizer` is not a contract participant.
     // - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
+    // - `FinalizationStateIncomplete` when the milestone vector is missing.
+    // - `AccountingInvariantViolated` when the accounting does not reconcile.
+    // - `PotentialOverflow` when a summary total cannot be represented.
     pub fn finalize_contract(env: Env, contract_id: u32, finalizer: Address) -> bool {
         finalize::finalize_contract_impl(&env, contract_id, finalizer)
     }
