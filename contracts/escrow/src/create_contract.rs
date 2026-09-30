@@ -1,7 +1,7 @@
 use crate::{
     amount_validation, keys, token_scale, ttl, Contract, ContractStatus, DataKey, Error, Escrow,
-    EscrowArgs, EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
-    MAX_MILESTONES,
+    EscrowClient, EscrowError, GovernedParameters, Milestone, ReleaseAuthorization,
+    MAX_MAX_MILESTONES, MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Vec};
 
@@ -59,6 +59,10 @@ impl Escrow {
             env.panic_with_error(EscrowError::InvalidParticipant);
         }
 
+        if client == freelancer {
+            env.panic_with_error(EscrowError::InvalidParticipant);
+        }
+
         match release_authorization {
             ReleaseAuthorization::ArbiterOnly | ReleaseAuthorization::ClientAndArbiter
                 if arbiter.is_none() =>
@@ -89,6 +93,10 @@ impl Escrow {
             env.panic_with_error(EscrowError::EmptyMilestones);
         }
 
+        if milestones.len() > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::TooManyMilestones);
+        }
+
         // Enforce the configurable max-milestones cap. The getter defaults to
         // `DEFAULT_MAX_MILESTONES` when no admin override has been stored, and
         // `set_max_milestones` clamps administrative updates to
@@ -96,6 +104,10 @@ impl Escrow {
         // bounded and safe regardless of caller intent.
         let max_milestones = Self::effective_max_milestones(&env);
         if milestones.len() > max_milestones {
+            env.panic_with_error(EscrowError::TooManyMilestones);
+        }
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
             env.panic_with_error(EscrowError::TooManyMilestones);
         }
 
@@ -127,6 +139,10 @@ impl Escrow {
                 env.panic_with_error(EscrowError::InvalidMilestoneAmount);
             }
             native_milestones[i] = v;
+        }
+
+        if len == 0 || len > MAX_MAX_MILESTONES as usize {
+            env.panic_with_error(EscrowError::TooManyMilestones);
         }
 
         match amount_validation::validate_milestone_amounts(&native_milestones[..len], max_total) {
@@ -196,6 +212,9 @@ impl Escrow {
         let next_id = id
             .checked_add(1)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
+        if next_id == 0 {
+            env.panic_with_error(Error::ContractIdOverflow);
+        }
         env.storage()
             .persistent()
             .set(&DataKey::NextContractId, &next_id);
@@ -220,6 +239,10 @@ impl Escrow {
             .persistent()
             .get(&DataKey::NextContractId)
             .unwrap_or(1);
+
+        if id == 0 {
+            env.panic_with_error(Error::ContractIdOverflow);
+        }
 
         if env
             .storage()

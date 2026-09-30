@@ -19,6 +19,7 @@ mod client_migration;
 // mod configurable_limits;
 mod contracts_boundary;
 mod create_contract_bounds;
+mod create_contract_validation;
 mod deposit;
 // Temporarily unwired: depends on missing client APIs / type mismatches on broken main.
 // mod dispute;
