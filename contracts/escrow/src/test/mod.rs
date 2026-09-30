@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
+pub use soroban_sdk::testutils::Events as _;
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
@@ -30,6 +31,7 @@ mod input_sanitization_identities;
 mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
+mod concurrent_execution;
 mod milestone_progress;
 mod pause_controls;
 mod performance;
@@ -52,6 +54,7 @@ mod simulate_deposit;
 mod simulate_release;
 mod token_scale;
 mod ttl_tests;
+mod milestone_concurrency;
 
 // --- Shared constants ---
 
@@ -473,6 +476,42 @@ pub fn assert_contract_error<
             expected, _other
         ),
     }
+}
+
+/// Assert that a `try_*` call returns the expected contract error and that
+/// the contract state was not mutated by the rejected call.
+///
+/// This is the concurrency-safe variant of [`assert_contract_error`]: it
+/// additionally verifies that a rejected (duplicate / racing) invocation
+/// leaves the contract's accounting fields untouched, so a failed retry
+/// cannot silently corrupt state.
+pub fn assert_contract_error_atomic<
+    T: core::fmt::Debug,
+    InnerError: core::fmt::Debug,
+    E: Into<soroban_sdk::Error> + core::fmt::Debug,
+>(
+    result: Result<Result<T, InnerError>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+    expected: E,
+    contract_before: crate::Contract,
+    contract_after: crate::Contract,
+) {
+    assert_contract_error(result, expected);
+    assert_eq!(
+        contract_before.status, contract_after.status,
+        "rejected call must not change contract status"
+    );
+    assert_eq!(
+        contract_before.funded_amount, contract_after.funded_amount,
+        "rejected call must not change funded_amount"
+    );
+    assert_eq!(
+        contract_before.released_amount, contract_after.released_amount,
+        "rejected call must not change released_amount"
+    );
+    assert_eq!(
+        contract_before.refunded_amount, contract_after.refunded_amount,
+        "rejected call must not change refunded_amount"
+    );
 }
 // Temporarily unwired: test::lifecycle::EscrowFixture / SetupConfig not yet defined in lifecycle.rs.
 // mod test_finalization_bug;

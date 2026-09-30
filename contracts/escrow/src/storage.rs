@@ -88,52 +88,50 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
 }
 
-/// Persist milestones for a contract with a monotonic version guard.
+/// Persist milestones for a contract, enforcing the same keying scheme used by
+/// [`load_milestones`].
 ///
-/// This is the canonical write path for milestones. It enforces optimistic
-/// concurrency control: callers must supply the `expected_version` they
-/// observed when reading, and the write only succeeds if the stored version
-/// still matches. On success the version is incremented atomically, so
-/// concurrent or retried writes cannot silently clobber each other.
+/// This helper centralizes the write path so that concurrent or repeated
+/// milestone mutations always target the same storage slot and cannot diverge
+/// from the read path. Callers that mutate milestones must go through this
+/// function to keep the read/write invariant intact.
+///
+/// # Arguments
+/// * `env` - The contract environment
+/// * `contract_id` - The contract ID whose milestones to store
+/// * `milestones` - The milestone vector to persist
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is 0
-/// - `StaleMilestoneVersion` if `expected_version` does not match the stored version
 pub(crate) fn store_milestones(
     env: &Env,
     contract_id: u32,
     milestones: &Vec<crate::Milestone>,
-    expected_version: u64,
 ) {
     validate_contract_id_bounds(env, contract_id);
-    let version_key = (DataKey::Contract(contract_id), Symbol::new(env, "milestone_version"));
-    let current: u64 = env
-        .storage()
-        .persistent()
-        .get(&version_key)
-        .unwrap_or(0);
-    if current != expected_version {
-        env.panic_with_error(Error::StaleMilestoneVersion);
-    }
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
         .persistent()
         .set(&(DataKey::Contract(contract_id), milestone_key), milestones);
-    env.storage()
-        .persistent()
-        .set(&version_key, &(current + 1));
 }
 
-/// Read the current milestone version for a contract.
+/// Load milestones for a contract, requiring that the contract itself exists.
 ///
-/// Returns `0` when no version has been recorded yet, matching the initial
-/// expected value accepted by [`store_milestones`].
-pub(crate) fn load_milestone_version(env: &Env, contract_id: u32) -> u64 {
+/// Unlike [`load_milestones`], this variant first loads the parent contract so
+/// that a missing contract surfaces as `ContractNotFound` even if a stale
+/// milestone vector happens to be present. This prevents orphaned milestone
+/// data from being observed after a contract has been removed or never created.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if the contract or its milestones are missing
+pub(crate) fn load_milestones_checked(
+    env: &Env,
+    contract_id: u32,
+) -> Vec<crate::Milestone> {
     validate_contract_id_bounds(env, contract_id);
-    env.storage()
-        .persistent()
-        .get(&(DataKey::Contract(contract_id), Symbol::new(env, "milestone_version")))
-        .unwrap_or(0)
+    let _ = load_contract(env, contract_id);
+    load_milestones(env, contract_id)
 }
 
 /// Load a contract, optionally with precondition checks for mutation.
@@ -438,6 +436,141 @@ mod tests {
     }
 
     #[test]
+    fn test_store_milestones_round_trip() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 500,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 7, &milestones);
+            let loaded = load_milestones(&env, 7);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 500);
+        });
+    }
+
+    #[test]
+    fn test_store_milestones_overwrite_is_idempotent() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let first = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 100,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let second = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 200,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 9, &first);
+            store_milestones(&env, 9, &second);
+            store_milestones(&env, 9, &second);
+            let loaded = load_milestones(&env, 9);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 200);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_store_milestones_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::new(&env);
+            store_milestones(&env, 0, &milestones);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_milestones_checked_missing_contract() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 100,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let milestone_key = Symbol::new(&env, "milestones");
+            env.storage()
+                .persistent()
+                .set(&(DataKey::Contract(77), milestone_key), &milestones);
+            load_milestones_checked(&env, 77);
+        });
+    }
+
+    #[test]
+    fn test_load_milestones_checked_with_contract() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let client = Address::generate(&env);
+            let freelancer = Address::generate(&env);
+            let contract = Contract {
+                client: client.clone(),
+                freelancer: freelancer.clone(),
+                arbiter: None,
+                status: crate::ContractStatus::Created,
+                release_authorization: crate::ReleaseAuthorization::ClientOnly,
+                funded_amount: 0,
+                released_amount: 0,
+                refunded_amount: 0,
+                total_deposited: 0,
+                reputation_issued: false,
+            };
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(11), &contract);
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 42,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 11, &milestones);
+            let loaded = load_milestones_checked(&env, 11);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 42);
+        });
+    }
+
+    #[test]
     fn test_require_not_paused_when_not_paused() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
@@ -692,95 +825,6 @@ mod tests {
             validate_contract_id_bounds(&env, 1);
             validate_contract_id_bounds(&env, 42);
             validate_contract_id_bounds(&env, u32::MAX);
-        });
-    }
-
-    #[test]
-    fn test_store_milestones_first_write_succeeds() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let milestones = Vec::from_array(
-                &env,
-                [Milestone {
-                    amount: 1000,
-                    funded_amount: 0,
-                    released: false,
-                    refunded: false,
-                    deadline: None,
-                    refunded_amount: 0,
-                    work_evidence: None,
-                }],
-            );
-            assert_eq!(load_milestone_version(&env, 42), 0);
-            store_milestones(&env, 42, &milestones, 0);
-            assert_eq!(load_milestone_version(&env, 42), 1);
-            assert_eq!(load_milestones(&env, 42).len(), 1);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "StaleMilestoneVersion")]
-    fn test_store_milestones_stale_version_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let milestones = Vec::from_array(
-                &env,
-                [Milestone {
-                    amount: 1000,
-                    funded_amount: 0,
-                    released: false,
-                    refunded: false,
-                    deadline: None,
-                    refunded_amount: 0,
-                    work_evidence: None,
-                }],
-            );
-            store_milestones(&env, 42, &milestones, 0);
-            // Second write with the same expected version must be rejected.
-            store_milestones(&env, 42, &milestones, 0);
-        });
-    }
-
-    #[test]
-    fn test_store_milestones_idempotent_retry_after_success() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let milestones = Vec::from_array(
-                &env,
-                [Milestone {
-                    amount: 1000,
-                    funded_amount: 0,
-                    released: false,
-                    refunded: false,
-                    deadline: None,
-                    refunded_amount: 0,
-                    work_evidence: None,
-                }],
-            );
-            store_milestones(&env, 42, &milestones, 0);
-            // A retry that re-reads the version and uses the fresh value succeeds.
-            let v = load_milestone_version(&env, 42);
-            store_milestones(&env, 42, &milestones, v);
-            assert_eq!(load_milestone_version(&env, 42), 2);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_store_milestones_zero_id_panics() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let milestones = Vec::new(&env);
-            store_milestones(&env, 0, &milestones, 0);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_load_milestone_version_zero_id_panics() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            load_milestone_version(&env, 0);
         });
     }
 }

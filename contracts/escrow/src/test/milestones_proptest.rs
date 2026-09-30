@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Property-based tests for milestone invariants.
 //!
 //! Tests core invariants that must hold across randomized milestone configurations:
@@ -319,7 +320,6 @@ fn check_release_monotonicity(
     // The release must either fail, or the flag should remain true.
     let ms_after = try_get_milestone(client, contract_id, milestone_index)
         .expect("milestone should exist");
-    let _ = release_ok;
     assert!(
         ms_after.released >= released_before,
         "Release flag should be monotonic (only false->true): before={}, after={}",
