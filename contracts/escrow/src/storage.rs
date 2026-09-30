@@ -7,6 +7,134 @@
 use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Symbol, Vec};
 
+/// Maximum number of retry attempts for recoverable storage operations.
+///
+/// Bounds the retry loop so a persistently failing storage backend cannot
+/// cause an unbounded loop. Chosen to be small enough to fail fast while
+/// still tolerating transient read/write hiccups.
+pub(crate) const MAX_STORAGE_RETRIES: u32 = 3;
+
+/// Deterministic recovery outcome for a storage operation.
+///
+/// Used by [`recover_or_panic`] to make failure handling explicit and
+/// observable. Callers can log or branch on the outcome without relying on
+/// panic side effects.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RecoveryOutcome {
+    /// Operation succeeded on the first attempt.
+    Success,
+    /// Operation succeeded after one or more retries.
+    Recovered { attempts: u32 },
+    /// Operation failed after exhausting all retries.
+    Exhausted { attempts: u32 },
+}
+
+/// Run a fallible storage operation with deterministic retry semantics.
+///
+/// The closure is invoked up to [`MAX_STORAGE_RETRIES`] times. The first
+/// successful invocation returns `Ok(RecoveryOutcome::Success)` or
+/// `Ok(RecoveryOutcome::Recovered { attempts })`. If every attempt fails,
+/// the last error is returned as `Err`.
+///
+/// This helper is intentionally pure with respect to storage: it does not
+/// mutate state on failure, so partial failures cannot leave the contract
+/// in an inconsistent state. Callers must ensure the closure itself is
+/// idempotent (reads are always safe; writes should be guarded by
+/// precondition checks performed before entering the retry loop).
+pub(crate) fn recover_or_panic<F, T, E>(
+    env: &Env,
+    mut op: F,
+) -> Result<RecoveryOutcome, E>
+where
+    F: FnMut() -> Result<T, E>,
+    E: core::fmt::Debug,
+{
+    let mut last_err: Option<E> = None;
+    let mut attempts: u32 = 0;
+    while attempts < MAX_STORAGE_RETRIES {
+        attempts += 1;
+        match op() {
+            Ok(_) => {
+                return Ok(if attempts == 1 {
+                    RecoveryOutcome::Success
+                } else {
+                    RecoveryOutcome::Recovered { attempts }
+                });
+            }
+            Err(err) => {
+                last_err = Some(err);
+            }
+        }
+    }
+    let _ = env;
+    match last_err {
+        Some(err) => Err(err),
+        None => unreachable!("retry loop must execute at least once"),
+    }
+}
+
+/// Deterministically load a contract, retrying transient storage failures.
+///
+/// Unlike [`load_contract`], this variant does not panic on the first
+/// missing read. It retries up to [`MAX_STORAGE_RETRIES`] times and only
+/// panics with `ContractNotFound` once all attempts are exhausted. This
+/// makes recovery observable and prevents a single transient miss from
+/// aborting an otherwise valid operation.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if the contract is still missing after all retries
+pub(crate) fn load_contract_recoverable(env: &Env, contract_id: u32) -> Contract {
+    validate_contract_id_bounds(env, contract_id);
+    let outcome = recover_or_panic(env, || {
+        env.storage()
+            .persistent()
+            .get::<_, Contract>(&DataKey::Contract(contract_id))
+            .ok_or(Error::ContractNotFound)
+    });
+    match outcome {
+        Ok(_) => env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound)),
+        Err(err) => env.panic_with_error(err),
+    }
+}
+
+/// Deterministically load milestones, retrying transient storage failures.
+///
+/// Mirrors [`load_milestones`] but retries transient misses before
+/// panicking, so recovery is deterministic and observable.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if milestones are still missing after all retries
+pub(crate) fn load_milestones_recoverable(
+    env: &Env,
+    contract_id: u32,
+) -> Vec<crate::Milestone> {
+    validate_contract_id_bounds(env, contract_id);
+    let milestone_key = Symbol::new(env, "milestones");
+    let outcome = recover_or_panic(env, || {
+        env.storage()
+            .persistent()
+            .get::<_, Vec<crate::Milestone>>(&(
+                DataKey::Contract(contract_id),
+                milestone_key.clone(),
+            ))
+            .ok_or(Error::ContractNotFound)
+    });
+    match outcome {
+        Ok(_) => env
+            .storage()
+            .persistent()
+            .get(&(DataKey::Contract(contract_id), milestone_key))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound)),
+        Err(err) => env.panic_with_error(err),
+    }
+}
+
 /// Validate that contract_id is within numeric bounds (non-zero).
 ///
 /// # Panics
