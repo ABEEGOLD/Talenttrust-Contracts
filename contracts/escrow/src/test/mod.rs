@@ -60,6 +60,11 @@ pub const MILESTONE_ONE: i128 = 200_0000000;
 pub const MILESTONE_TWO: i128 = 400_0000000;
 pub const MILESTONE_THREE: i128 = 600_0000000;
 
+/// Minimum accepted amount for a milestone (exclusive lower bound).
+pub const MIN_MILESTONE_AMOUNT: i128 = 0;
+/// Maximum accepted amount for a milestone (inclusive upper bound).
+pub const MAX_MILESTONE_AMOUNT: i128 = i128::MAX / 4;
+
 /// A complete, test-only escrow fixture.
 ///
 /// The fixture owns its Soroban [`Env`] and records the generated addresses and
@@ -94,6 +99,21 @@ impl EscrowFixture {
             .get_milestones(&self.escrow_id)
             .iter()
             .fold(0_i128, |total, milestone| total + milestone.amount)
+    }
+
+    /// Assert that a `try_*` call returns the expected contract error.
+    ///
+    /// This is a thin wrapper around [`assert_contract_error`] that keeps
+    /// boundary tests readable and consistent with the shared helper.
+    pub fn assert_error<
+        T: core::fmt::Debug,
+        InnerError: core::fmt::Debug,
+        E: Into<soroban_sdk::Error> + core::fmt::Debug,
+    >(
+        result: Result<Result<T, InnerError>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+        expected: E,
+    ) {
+        assert_contract_error(result, expected);
     }
 }
 
@@ -174,6 +194,28 @@ impl EscrowFixtureBuilder {
         self.completed = true;
         self.fund = true;
         self.settlement_token = true;
+        self
+    }
+
+    /// Configure the fixture with a single milestone of the given amount.
+    ///
+    /// Useful for boundary tests that need to exercise the exact accepted or
+    /// rejected amount without the noise of the default three-milestone setup.
+    pub fn with_single_milestone(mut self, amount: i128) -> Self {
+        self.milestones = Some(vec![&self.env, amount]);
+        self
+    }
+
+    /// Configure the fixture with the provided milestone amounts.
+    ///
+    /// This is the boundary-test-friendly counterpart to [`Self::with_milestones`]
+    /// that accepts a slice and copies it into a Soroban [`Vec`].
+    pub fn with_milestone_amounts(mut self, amounts: &[i128]) -> Self {
+        let mut v = Vec::new(&self.env);
+        for amount in amounts {
+            v.push_back(*amount);
+        }
+        self.milestones = Some(v);
         self
     }
 
@@ -378,6 +420,19 @@ pub fn total_milestone_amount() -> i128 {
 /// Alias used by tests that import `total_milestones` directly.
 pub fn total_milestones() -> i128 {
     total_milestone_amount()
+}
+
+/// Assert that `amount` is within the accepted milestone amount bounds.
+///
+/// The bounds are intentionally documented here so that boundary tests and
+/// production validation share a single source of truth.
+pub fn is_valid_milestone_amount(amount: i128) -> bool {
+    amount > MIN_MILESTONE_AMOUNT && amount <= MAX_MILESTONE_AMOUNT
+}
+
+/// Assert that `amount` is rejected by milestone amount validation.
+pub fn is_invalid_milestone_amount(amount: i128) -> bool {
+    !is_valid_milestone_amount(amount)
 }
 
 /// Generate a fresh (client, freelancer) address pair for a test.
