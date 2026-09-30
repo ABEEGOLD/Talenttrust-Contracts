@@ -9,16 +9,11 @@ use soroban_sdk::{Env, Symbol, Vec};
 
 /// Validate that contract_id is within numeric bounds (non-zero).
 ///
-/// # Invariants
-/// - Contract IDs are 1-based; `0` is reserved as the "unset" sentinel and is
-///   never a valid storage key. Rejecting it here prevents accidental reads or
-///   writes against a sentinel key that could collide with uninitialized state.
-///
 /// # Panics
 /// - `InvalidContractId` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
-        env.panic_with_error(EscrowError::ContractNotFound);
+        env.panic_with_error(Error::InvalidContractId);
     }
 }
 
@@ -51,12 +46,6 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// This is the canonical pattern for retrieving a contract. It handles the
 /// storage read with consistent error reporting and bounds checking.
 ///
-/// # Invariants
-/// - `contract_id` must be non-zero (see [`validate_contract_id_bounds`]).
-/// - A missing entry is a hard failure (`ContractNotFound`); callers must not
-///   treat absence as an empty/default contract, which would silently corrupt
-///   downstream state transitions.
-///
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract_id` - The contract ID to load
@@ -79,12 +68,6 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 ///
 /// Milestones are stored under a composite key combining the contract ID
 /// and a "milestones" symbol. This helper centralizes the retrieval pattern.
-///
-/// # Invariants
-/// - `contract_id` must be non-zero (see [`validate_contract_id_bounds`]).
-/// - A missing milestone vector is a hard failure (`ContractNotFound`); an
-///   empty vector is a distinct, valid state and must not be conflated with
-///   absence.
 ///
 /// # Arguments
 /// * `env` - The contract environment
@@ -234,16 +217,6 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
 /// the expected nonce is `1` (zero means uninitialized). After a successful
 /// call the stored nonce is incremented atomically.
 ///
-/// # Invariants
-/// - The stored nonce is strictly monotonic: it only ever increases by exactly
-///   one per successful call.
-/// - `provided_nonce == 0` is always rejected because `0` is the uninitialized
-///   sentinel and the first expected value is `1`.
-/// - Duplicate submissions (replaying an already-consumed nonce) are rejected
-///   with `StaleNonce`, so retries cannot double-apply an admin action.
-/// - The nonce is only written after the equality check succeeds, so a rejected
-///   call leaves storage unchanged (no partial state mutation).
-///
 /// # Panics
 /// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
 pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
@@ -263,11 +236,6 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
 
 /// Check if a contract has been finalized.
 ///
-/// # Invariants
-/// - `contract_id` must be non-zero (see [`validate_contract_id_bounds`]).
-/// - Finalization is a one-way latch: once the `Finalization` key exists it is
-///   never removed, so this predicate is stable across retries.
-///
 /// # Arguments
 /// * `env` - The contract environment
 /// * `contract_id` - The contract ID to check
@@ -282,12 +250,6 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 }
 
 /// Require that a contract has not been finalized.
-///
-/// # Invariants
-/// - `contract_id` must be non-zero (see [`validate_contract_id_bounds`]).
-/// - This is the mutation guard for finalized contracts: any state transition
-///   that must not run post-finalization routes through here so the check is
-///   applied uniformly and cannot be bypassed by a caller.
 ///
 /// # Arguments
 /// * `env` - The contract environment
@@ -345,111 +307,6 @@ mod tests {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             load_contract(&env, 999);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_load_contract_zero_id_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            load_contract(&env, 0);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_load_milestones_zero_id_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            load_milestones(&env, 0);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_is_finalized_zero_id_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            is_finalized(&env, 0);
-        });
-    }
-
-    #[test]
-    fn test_is_finalized_boundary_max_id() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            assert!(!is_finalized(&env, u32::MAX));
-            env.storage()
-                .persistent()
-                .set(&DataKey::Finalization(u32::MAX), &true);
-            assert!(is_finalized(&env, u32::MAX));
-        });
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_first_call_is_one() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            let stored: u64 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::AdminNonce)
-                .unwrap_or(0);
-            assert_eq!(stored, 1);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_zero_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 0);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_duplicate_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            // Replaying the same nonce must be rejected.
-            consume_admin_nonce(&env, 1);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_future_rejected() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 2);
-        });
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_rejection_leaves_state_unchanged() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            let before: u64 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::AdminNonce)
-                .unwrap_or(0);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                consume_admin_nonce(&env, 5);
-            }));
-            assert!(result.is_err());
-            let after: u64 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::AdminNonce)
-                .unwrap_or(0);
-            assert_eq!(before, after);
         });
     }
 

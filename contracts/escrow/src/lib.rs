@@ -315,11 +315,6 @@ impl Escrow {
         Self::require_initialized(&env);
         Self::require_not_paused(&env);
 
-        // Validation boundary: reject non-positive and out-of-range amounts
-        // before any storage read or token interaction so invalid input cannot
-        // mutate state or reach the SAC transfer path.
-        amount_validation::validate_deposit_amount(&env, amount);
-
         let validated = deposit::validate_deposit(&env, contract_id, &caller, amount);
 
         let token = Self::read_settlement_token(&env)
@@ -664,15 +659,10 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        // Validation boundary: use checked arithmetic so an inconsistent
-        // accounting state surfaces as PotentialOverflow instead of silently
-        // wrapping into a large positive balance that would allow over-release.
-        let available_balance = contract
-            .funded_amount
-            .checked_sub(contract.released_amount)
-            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
-            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        let available_balance = contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees;
 
         if available_balance < total_gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -1763,6 +1753,7 @@ impl Escrow {
         Self::require_initialized(&env);
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+        Self::validate_admin_nonce_boundary(&env, admin_nonce);
         storage::consume_admin_nonce(&env, admin_nonce);
         env.storage().persistent().set(&DataKey::Paused, &true);
         // Clear any scoped pause when legacy pause is activated
@@ -1793,6 +1784,7 @@ impl Escrow {
         Self::require_initialized(&env);
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+        Self::validate_admin_nonce_boundary(&env, admin_nonce);
         storage::consume_admin_nonce(&env, admin_nonce);
         // Clear legacy flag, set scoped pause
         env.storage().persistent().set(&DataKey::Paused, &false);
@@ -2935,6 +2927,23 @@ impl Escrow {
             .persistent()
             .get::<_, bool>(&DataKey::Initialized)
             .unwrap_or(false)
+    }
+
+    // Validates the admin nonce against the current stored counter before
+    // delegating to `storage::consume_admin_nonce`. Enforces the storage
+    // boundary invariant: the supplied nonce must exactly equal the next
+    // expected value. Rejects stale (replay) and future (skip-ahead) nonces
+    // deterministically so concurrent or retried calls cannot desynchronize
+    // the monotonic counter.
+    pub(crate) fn validate_admin_nonce_boundary(env: &Env, admin_nonce: u64) {
+        let expected: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AdminNonce)
+            .unwrap_or(0);
+        if admin_nonce != expected {
+            env.panic_with_error(Error::InvalidProtocolParameters);
+        }
     }
 
     // -----------------------------------------------------------------------

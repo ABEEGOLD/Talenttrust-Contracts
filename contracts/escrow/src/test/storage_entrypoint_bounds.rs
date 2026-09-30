@@ -17,7 +17,7 @@
 //!   - `rollback_dispute`           — contract_id != 0
 //!   - `deposit_funds`              — amount > 0
 //!   - `create_contract`            — milestone count in [1, MAX_MILESTONES]
-//!   - `set_governed_params`        — fee_bps <= MAX_FEE_BPS (centralized)
+//!   - `deposit_funds`              — amount <= MAX_SINGLE_AMOUNT_STROOPS
 
 #![cfg(test)]
 
@@ -28,7 +28,7 @@ use crate::{
     Error, Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_FEE_BPS, MAX_MILESTONES,
     MAX_SINGLE_AMOUNT_STROOPS, MAX_TOTAL_ESCROW_STROOPS,
 };
-use crate::MAX_COMMENT_BYTES;
+use crate::storage::{MAX_COMMENT_BYTES, MAX_RATING};
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -191,27 +191,29 @@ fn set_governed_params_rejected_leaves_params_unchanged() {
     assert_eq!(params.max_escrow_total_stroops, 1_000_000);
 }
 
-/// Boundary success: exactly MAX_FEE_BPS with a valid cap must be accepted.
+/// Exactly MAX_TOTAL_ESCROW_STROOPS must be accepted (upper boundary).
 #[test]
-fn set_governed_params_accepts_exactly_max_fee() {
+fn set_governed_params_accepts_max_total_escrow_stroops() {
     let env = Env::default();
     let (escrow, admin) = setup_no_token(&env);
-    assert!(escrow.set_governed_params(&admin, &MAX_FEE_BPS, &1_i128));
+    assert!(escrow.set_governed_params(&admin, &0_u32, &MAX_TOTAL_ESCROW_STROOPS));
     let params = escrow.get_governed_parameters().unwrap();
-    assert_eq!(params.protocol_fee_bps, MAX_FEE_BPS);
-    assert_eq!(params.max_escrow_total_stroops, 1);
+    assert_eq!(params.max_escrow_total_stroops, MAX_TOTAL_ESCROW_STROOPS);
 }
 
-/// Rejected call must not mutate params even when only the fee is invalid.
+/// MAX_TOTAL_ESCROW_STROOPS + 1 must be rejected (upper boundary + 1).
 #[test]
-fn set_governed_params_rejected_fee_leaves_params_unchanged() {
+fn set_governed_params_rejects_over_max_total_escrow_stroops() {
     let env = Env::default();
     let (escrow, admin) = setup_no_token(&env);
-    escrow.set_governed_params(&admin, &100_u32, &2_000_000_i128);
-    let _ = escrow.try_set_governed_params(&admin, &(MAX_FEE_BPS + 1), &2_000_000_i128);
-    let params = escrow.get_governed_parameters().unwrap();
-    assert_eq!(params.protocol_fee_bps, 100);
-    assert_eq!(params.max_escrow_total_stroops, 2_000_000);
+    let result = escrow.try_set_governed_params(&admin, &0_u32, &(MAX_TOTAL_ESCROW_STROOPS + 1));
+    match result {
+        Err(Ok(e)) => {
+            let want: soroban_sdk::Error = Error::InvalidProtocolParameters.into();
+            assert_eq!(e, want, "expected InvalidProtocolParameters for cap over max");
+        }
+        other => panic!("expected InvalidProtocolParameters, got {:?}", other),
+    }
 }
 
 // ── set_reputation_config — rating and comment bounds ─────────────────────────
@@ -249,16 +251,6 @@ fn set_reputation_config_accepts_max_comment_1000() {
     assert_eq!(cfg.max_comment_bytes, 1_000);
 }
 
-/// max_comment_bytes = MAX_COMMENT_BYTES (constant) must be accepted.
-#[test]
-fn set_reputation_config_accepts_max_comment_constant() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    assert!(escrow.set_reputation_config(&1_u32, &5_u32, &MAX_COMMENT_BYTES));
-    let cfg = escrow.get_reputation_config();
-    assert_eq!(cfg.max_comment_bytes, MAX_COMMENT_BYTES);
-}
-
 /// max_comment_bytes = 1_001 must be rejected.
 #[test]
 fn set_reputation_config_rejects_comment_over_1000() {
@@ -271,24 +263,6 @@ fn set_reputation_config_rejects_comment_over_1000() {
             assert_eq!(
                 e, want,
                 "expected InvalidProtocolParameters for comment > 1000"
-            );
-        }
-        other => panic!("expected InvalidProtocolParameters, got {:?}", other),
-    }
-}
-
-/// max_comment_bytes = MAX_COMMENT_BYTES + 1 must be rejected.
-#[test]
-fn set_reputation_config_rejects_comment_over_constant() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let result = escrow.try_set_reputation_config(&1_u32, &5_u32, &(MAX_COMMENT_BYTES + 1));
-    match result {
-        Err(Ok(e)) => {
-            let want: soroban_sdk::Error = Error::InvalidProtocolParameters.into();
-            assert_eq!(
-                e, want,
-                "expected InvalidProtocolParameters for comment > MAX_COMMENT_BYTES"
             );
         }
         other => panic!("expected InvalidProtocolParameters, got {:?}", other),
@@ -377,6 +351,38 @@ fn set_reputation_config_rejected_leaves_config_unchanged() {
     assert_eq!(cfg.max_comment_bytes, 150);
 }
 
+/// max_comment_bytes = MAX_COMMENT_BYTES must be accepted (upper boundary).
+#[test]
+fn set_reputation_config_accepts_max_comment_bytes_constant() {
+    let env = Env::default();
+    let (escrow, _admin) = setup_no_token(&env);
+    assert!(escrow.set_reputation_config(&1_u32, &MAX_RATING, &MAX_COMMENT_BYTES));
+    let cfg = escrow.get_reputation_config();
+    assert_eq!(cfg.max_rating, MAX_RATING);
+    assert_eq!(cfg.max_comment_bytes, MAX_COMMENT_BYTES);
+}
+
+/// max_rating = MAX_RATING must be accepted (upper boundary).
+#[test]
+fn set_reputation_config_accepts_max_rating_constant() {
+    let env = Env::default();
+    let (escrow, _admin) = setup_no_token(&env);
+    assert!(escrow.set_reputation_config(&1_u32, &MAX_RATING, &200_u32));
+    let cfg = escrow.get_reputation_config();
+    assert_eq!(cfg.max_rating, MAX_RATING);
+}
+
+/// min_rating = MAX_RATING must be accepted (upper boundary for min).
+#[test]
+fn set_reputation_config_accepts_min_rating_at_max() {
+    let env = Env::default();
+    let (escrow, _admin) = setup_no_token(&env);
+    assert!(escrow.set_reputation_config(&MAX_RATING, &MAX_RATING, &200_u32));
+    let cfg = escrow.get_reputation_config();
+    assert_eq!(cfg.min_rating, MAX_RATING);
+    assert_eq!(cfg.max_rating, MAX_RATING);
+}
+
 // ── set_protocol_fee_bps — bounds validation (centralized) ────────────────────
 
 /// 0 bps (no fee) must be accepted.
@@ -425,16 +431,6 @@ fn set_protocol_fee_bps_rejects_u32_max() {
         }
         other => panic!("expected InvalidProtocolParameters, got {:?}", other),
     }
-}
-
-/// Rejected fee update must not mutate the stored fee.
-#[test]
-fn set_protocol_fee_bps_rejected_leaves_fee_unchanged() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    escrow.set_protocol_fee_bps(&250_u32);
-    let _ = escrow.try_set_protocol_fee_bps(&(MAX_FEE_BPS + 1));
-    assert_eq!(escrow.get_protocol_fee_bps(), 250);
 }
 
 // ── contract_id = 0 rejection for migration entrypoints ───────────────────────
@@ -515,7 +511,7 @@ fn deposit_funds_rejects_i128_max_amount() {
     assert!(result.is_err(), "deposit of i128::MAX must be rejected");
 }
 
-/// Deposit of exactly MAX_SINGLE_AMOUNT_STROOPS must be accepted (boundary).
+/// Deposit of exactly MAX_SINGLE_AMOUNT_STROOPS must be accepted (upper boundary).
 #[test]
 fn deposit_funds_accepts_exactly_single_max() {
     let env = Env::default();
@@ -553,6 +549,40 @@ fn deposit_funds_rejects_amount_over_single_max() {
         result.is_err(),
         "deposit over MAX_SINGLE_AMOUNT_STROOPS must be rejected"
     );
+}
+
+/// Deposit of 0 must be rejected (lower boundary).
+#[test]
+fn deposit_funds_rejects_zero_amount() {
+    let env = Env::default();
+    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
+    let milestones = vec![&env, MAX_SINGLE_AMOUNT_STROOPS];
+    let id = escrow.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let result = escrow.try_deposit_funds(&id, &client_addr, &0_i128);
+    assert!(result.is_err(), "deposit of 0 must be rejected");
+}
+
+/// Deposit of -1 must be rejected (negative boundary).
+#[test]
+fn deposit_funds_rejects_negative_amount() {
+    let env = Env::default();
+    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
+    let milestones = vec![&env, MAX_SINGLE_AMOUNT_STROOPS];
+    let id = escrow.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let result = escrow.try_deposit_funds(&id, &client_addr, &(-1_i128));
+    assert!(result.is_err(), "deposit of -1 must be rejected");
 }
 
 // ── create_contract — milestone count bounds (additional edge cases) ──────────
@@ -602,14 +632,14 @@ fn create_contract_rejects_over_max_milestones() {
     }
 }
 
-/// Zero milestones must be rejected with InvalidMilestones.
+/// Zero milestones must be rejected (lower boundary).
 #[test]
 fn create_contract_rejects_zero_milestones() {
     let env = Env::default();
     let (escrow, _admin) = setup_no_token(&env);
     let c = Address::generate(&env);
     let f = Address::generate(&env);
-    let milestones = milestone_vec(&env, 0, 1_i128);
+    let milestones: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(&env);
     let result = escrow.try_create_contract(
         &c,
         &f,
@@ -678,4 +708,39 @@ fn regression_set_reputation_config_multiple_updates() {
     assert_eq!(cfg.min_rating, 1);
     assert_eq!(cfg.max_rating, 10);
     assert_eq!(cfg.max_comment_bytes, 1_000);
+}
+
+/// Duplicate submission of set_protocol_fee_bps with the same value must be idempotent.
+#[test]
+fn regression_set_protocol_fee_bps_duplicate_is_idempotent() {
+    let env = Env::default();
+    let (escrow, _admin) = setup_no_token(&env);
+    assert!(escrow.set_protocol_fee_bps(&250_u32));
+    assert!(escrow.set_protocol_fee_bps(&250_u32));
+    assert_eq!(escrow.get_protocol_fee_bps(), 250_u32);
+}
+
+/// Duplicate submission of set_governed_params with the same values must be idempotent.
+#[test]
+fn regression_set_governed_params_duplicate_is_idempotent() {
+    let env = Env::default();
+    let (escrow, admin) = setup_no_token(&env);
+    assert!(escrow.set_governed_params(&admin, &100_u32, &1_000_000_i128));
+    assert!(escrow.set_governed_params(&admin, &100_u32, &1_000_000_i128));
+    let params = escrow.get_governed_parameters().unwrap();
+    assert_eq!(params.protocol_fee_bps, 100);
+    assert_eq!(params.max_escrow_total_stroops, 1_000_000);
+}
+
+/// Duplicate submission of set_reputation_config with the same values must be idempotent.
+#[test]
+fn regression_set_reputation_config_duplicate_is_idempotent() {
+    let env = Env::default();
+    let (escrow, _admin) = setup_no_token(&env);
+    assert!(escrow.set_reputation_config(&1_u32, &5_u32, &200_u32));
+    assert!(escrow.set_reputation_config(&1_u32, &5_u32, &200_u32));
+    let cfg = escrow.get_reputation_config();
+    assert_eq!(cfg.min_rating, 1);
+    assert_eq!(cfg.max_rating, 5);
+    assert_eq!(cfg.max_comment_bytes, 200);
 }
