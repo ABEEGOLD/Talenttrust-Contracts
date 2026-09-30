@@ -36,7 +36,7 @@ fn setup_uninitialized(env: &Env) -> EscrowClient<'_> {
 fn pause_before_initialize_panics_not_initialized() {
     let env = Env::default();
     let client = setup_uninitialized(&env);
-    super::assert_contract_error(client.try_pause(), EscrowError::NotInitialized);
+    super::assert_contract_error(client.try_pause(&1u64), EscrowError::NotInitialized);
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn resolve_emergency_before_initialize_panics_not_initialized() {
 fn pause_succeeds_with_admin_auth() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
-    assert!(client.pause(), "pause must return true");
+    assert!(client.pause(&1u64), "pause must return true");
     assert!(client.is_paused(), "contract must be in paused state");
 }
 
@@ -80,7 +80,7 @@ fn pause_succeeds_with_admin_auth() {
 fn unpause_succeeds_after_pause() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
-    client.pause();
+    client.pause(&1u64);
     assert!(client.unpause(), "unpause must return true");
     assert!(!client.is_paused(), "contract must be unpaused");
 }
@@ -115,6 +115,57 @@ fn resolve_emergency_succeeds_with_admin_auth() {
 // already prove that `load_and_auth_admin` routes through `require_auth()` —
 // the Soroban auth engine guarantees the panic when no auth is provided.
 
+// ─── Pending admin round-trip ──────────────────────────────────────────────────
+
+/// Propose an admin, then read it back via get_pending_admin.
+#[test]
+fn pending_admin_propose_and_read() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    assert!(client.initialize(&admin), "initialize must succeed");
+    assert!(
+        client.get_pending_admin().is_none(),
+        "no pending before proposal"
+    );
+    let _ = client.propose_admin(&new_admin);
+    let pending = client.get_pending_admin();
+    assert_eq!(
+        pending,
+        Some(new_admin.clone()),
+        "pending admin must match proposed"
+    );
+    assert!(
+        client.get_pending_admin_proposed_at().is_some(),
+        "proposed_at must be Some"
+    );
+    assert_eq!(
+        client.pending_admin_proposed_at(),
+        client.get_pending_admin_proposed_at(),
+        "both accessors must agree"
+    );
+}
+
+#[test]
+fn pending_admin_returns_none_when_absent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let client = EscrowClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    assert!(
+        client.get_pending_admin().is_none(),
+        "no pending without proposal"
+    );
+    assert!(
+        client.get_pending_admin_proposed_at().is_none(),
+        "no proposed_at without proposal"
+    );
+}
 // ─── Idempotent / State invariant round-trips ─────────────────────────────────
 
 /// Emergency and pause flags are set and cleared atomically through the helper.
@@ -144,7 +195,7 @@ fn pause_unpause_does_not_affect_emergency_flag() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
 
-    client.pause();
+    client.pause(&1u64);
     assert!(!client.is_emergency(), "pause must not set emergency flag");
 
     client.unpause();
