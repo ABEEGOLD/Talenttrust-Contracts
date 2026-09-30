@@ -82,7 +82,7 @@ mod migration;
 mod milestone_transitions;
 mod milestones;
 pub mod milestones_consts;
-mod refund_impl;
+pub mod refund;
 mod release;
 mod reputation;
 mod rollback;
@@ -3197,5 +3197,8 @@ impl Escrow {
 }
 
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
+#[cfg(test)]
+mod proptest;
+
 #[cfg(test)]
 mod test;
