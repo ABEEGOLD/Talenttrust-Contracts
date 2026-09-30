@@ -74,6 +74,7 @@ pub struct EscrowFixture {
     pub escrow_id: u32,
     pub settlement_token: Option<Address>,
     pub release_authorization: ReleaseAuthorization,
+    pub completed_milestones: u32,
 }
 
 impl EscrowFixture {
@@ -93,6 +94,27 @@ impl EscrowFixture {
             .get_milestones(&self.escrow_id)
             .iter()
             .fold(0_i128, |total, milestone| total + milestone.amount)
+    }
+
+    /// Deterministically recover a partially-completed fixture by releasing
+    /// every milestone that has not yet been released.
+    ///
+    /// This is idempotent: calling it on an already-completed fixture is a
+    /// no-op, and calling it after a partial failure resumes from the first
+    /// unreleased milestone. It returns the number of milestones released by
+    /// this call so callers can observe progress without inspecting state.
+    pub fn recover_completion(&mut self) -> u32 {
+        let total = self.escrow().get_milestones(&self.escrow_id).len();
+        let mut released = 0u32;
+        for index in self.completed_milestones..total {
+            self.escrow()
+                .approve_milestone_release(&self.escrow_id, &self.client, &index);
+            self.escrow()
+                .release_milestone(&self.escrow_id, &self.client, &index);
+            self.completed_milestones = index + 1;
+            released += 1;
+        }
+        released
     }
 }
 
@@ -215,6 +237,7 @@ impl EscrowFixtureBuilder {
             escrow.deposit_funds(&escrow_id, &client, &total);
         }
 
+        let mut completed_milestones = 0u32;
         if self.completed {
             let escrow_client = &escrow;
             for i in 0..milestones.len() {
@@ -239,6 +262,7 @@ impl EscrowFixtureBuilder {
                     }
                 }
                 escrow_client.release_milestone(&escrow_id, &client, &(i as u32));
+                completed_milestones = (i as u32) + 1;
             }
         }
 
@@ -252,6 +276,7 @@ impl EscrowFixtureBuilder {
             escrow_id,
             settlement_token,
             release_authorization: self.release_authorization,
+            completed_milestones,
         }
     }
 }

@@ -30,12 +30,14 @@
 //! required. Runtime is bounded by `PROPTEST_CASES` (default 256).
 
 #![cfg(test)]
+#![cfg(test)]
 
 extern crate std;
 
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, vec as sorovec, Address, Env, Vec as SoroVec};
 
+use crate::{
 use crate::{
     milestones_consts::{MAX_RATING, MIN_RATING},
     Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
@@ -46,6 +48,7 @@ use crate::{
 fn setup() -> (Env, EscrowClient<'static>) {
     // SAFETY: EscrowClient borrows Env; we box Env so the address is stable for
     // the lifetime of the test case.
+    let env = Box::leak(Box::new(Env::default()));
     let env = Box::leak(Box::new(Env::default()));
     env.mock_all_auths();
     let id = env.register(Escrow, ());
