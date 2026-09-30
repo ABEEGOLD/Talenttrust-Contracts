@@ -5,6 +5,7 @@
 //! entrypoints. All contract loading operations should route through these helpers.
 
 use crate::{Contract, DataKey, Error, EscrowError};
+use crate::ContractStatus;
 use soroban_sdk::{Env, Symbol, Vec};
 
 /// Validate that contract_id is within numeric bounds (non-zero).
@@ -127,6 +128,59 @@ pub(crate) fn load_contract_checked(
     }
 
     contract
+}
+
+/// Validate the internal state invariants of a loaded [`Contract`].
+///
+/// This is the single source of truth for the accounting invariants owned by
+/// the escrow contract. It is intentionally pure (no storage access) so it can
+/// be called from any entrypoint — including `refund_impl.rs` — before any
+/// mutation is persisted. Any violation aborts the transaction, guaranteeing
+/// that partial failures cannot leave the contract in an inconsistent state.
+///
+/// # Invariants enforced
+/// 1. `released_amount + refunded_amount <= funded_amount`
+/// 2. `funded_amount <= total_deposited`
+/// 3. `released_amount <= funded_amount`
+/// 4. `refunded_amount <= funded_amount`
+/// 5. `funded_amount >= 0` (implied by `i128` but asserted for clarity)
+/// 6. Terminal statuses (`Completed`, `Cancelled`, `Refunded`) must have
+///    `released_amount + refunded_amount == funded_amount` when `funded_amount > 0`.
+///
+/// # Panics
+/// Panics with [`Error::InvariantViolation`] if any invariant is broken.
+pub(crate) fn require_contract_invariants(env: &Env, contract: &Contract) {
+    // Invariant 5: non-negative accounting (defensive; i128 can be negative).
+    if contract.funded_amount < 0
+        || contract.released_amount < 0
+        || contract.refunded_amount < 0
+        || contract.total_deposited < 0
+    {
+        env.panic_with_error(Error::InvariantViolation);
+    }
+
+    // Invariant 2: cannot fund more than was deposited.
+    if contract.funded_amount > contract.total_deposited {
+        env.panic_with_error(Error::InvariantViolation);
+    }
+
+    // Invariants 1, 3, 4: released + refunded must not exceed funded.
+    let released_plus_refunded = contract
+        .released_amount
+        .checked_add(contract.refunded_amount)
+        .unwrap_or_else(|| env.panic_with_error(Error::InvariantViolation));
+    if released_plus_refunded > contract.funded_amount {
+        env.panic_with_error(Error::InvariantViolation);
+    }
+
+    // Invariant 6: terminal states must fully account for funded amounts.
+    let is_terminal = matches!(
+        contract.status,
+        ContractStatus::Completed | ContractStatus::Cancelled | ContractStatus::Refunded
+    );
+    if is_terminal && contract.funded_amount > 0 && released_plus_refunded != contract.funded_amount {
+        env.panic_with_error(Error::InvariantViolation);
+    }
 }
 
 /// Check if the contract system is paused or in emergency mode.
@@ -337,6 +391,7 @@ mod tests {
             assert_eq!(loaded.client, client);
             assert_eq!(loaded.freelancer, freelancer);
             assert_eq!(loaded.status, crate::ContractStatus::Created);
+            require_contract_invariants(&env, &loaded);
         });
     }
 
@@ -487,6 +542,7 @@ mod tests {
 
             let loaded = load_contract_checked(&env, 42, true, true);
             assert_eq!(loaded.client, client);
+            require_contract_invariants(&env, &loaded);
         });
     }
 
@@ -580,6 +636,7 @@ mod tests {
             // Should succeed because checks are disabled
             let loaded = load_contract_checked(&env, 42, false, false);
             assert_eq!(loaded.client, client);
+            require_contract_invariants(&env, &loaded);
         });
     }
 
@@ -644,6 +701,133 @@ mod tests {
             validate_contract_id_bounds(&env, 1);
             validate_contract_id_bounds(&env, 42);
             validate_contract_id_bounds(&env, u32::MAX);
+        });
+    }
+
+    fn make_contract(
+        env: &Env,
+        status: crate::ContractStatus,
+        funded: i128,
+        released: i128,
+        refunded: i128,
+        deposited: i128,
+    ) -> Contract {
+        Contract {
+            client: Address::generate(env),
+            freelancer: Address::generate(env),
+            arbiter: None,
+            status,
+            release_authorization: crate::ReleaseAuthorization::ClientOnly,
+            funded_amount: funded,
+            released_amount: released,
+            refunded_amount: refunded,
+            total_deposited: deposited,
+            reputation_issued: false,
+        }
+    }
+
+    #[test]
+    fn test_invariants_accept_valid_active_state() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 0, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    fn test_invariants_accept_partial_release() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 40, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    fn test_invariants_accept_partial_refund() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 0, 40, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    fn test_invariants_accept_terminal_fully_settled() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Completed, 100, 100, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    fn test_invariants_accept_zero_funded_terminal() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Cancelled, 0, 0, 0, 0);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_released_exceeds_funded() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 101, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_refunded_exceeds_funded() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 0, 101, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_released_plus_refunded_exceeds_funded() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 100, 60, 60, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_funded_exceeds_deposited() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, 101, 0, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_terminal_under_settled() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Completed, 100, 40, 0, 100);
+            require_contract_invariants(&env, &c);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn test_invariants_reject_negative_amounts() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let c = make_contract(&env, crate::ContractStatus::Created, -1, 0, 0, 0);
+            require_contract_invariants(&env, &c);
         });
     }
 }
