@@ -122,7 +122,7 @@ pub fn validate_milestone_amounts(
 /// single-milestone ceiling enforced across the escrow contract.
 ///
 /// # Decision Boundaries
-+//
+///
 /// This function operates at three critical boundaries:
 /// - **Exactly-remaining**: `deposit + current == max_total` ℒ Success
 /// - **One stroop short**: `deposit + current == max_total - 1` → Success
@@ -231,7 +231,7 @@ pub fn accumulate_amounts<I: IntoIterator<Item = i128>>(
 /// included, so the event is safe to log and match in tests.
 ///
 /// # Invariants
-"/// - The emitted code is a deterministic function of the error variant.
+/// - The emitted code is a deterministic function of the error variant.
 /// - The function never panics and never mutates state.
 /// - The operation name is a compile-time constant supplied by the caller.
 pub fn failure_code(error: &crate::EscrowError) -> u32 {
@@ -267,13 +267,13 @@ pub fn observe_failure(operation: &str, error: &crate::EscrowError) -> FailureOb
 /// tests to assert failure-recovery behavior.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureObservation {
-    /// Stable operation name (e.g. `"deposit_funds`").
+    /// Stable operation name (e.g. `"deposit_funds"`).
     pub operation: String,
     /// Deterministic numeric code for the error variant.
     pub code: u32,
 }
 
-#[config(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -283,7 +283,7 @@ mod tests {
         assert!(validate_single_amount(100_0000000).is_ok());
         assert!(validate_single_amount(MAX_SINGLE_AMOUNT_STROOPS).is_ok());
 
-        assert_eq(
+        assert_eq!(
             validate_single_amount(0),
             Err(crate::EscrowError::AmountMustBePositive)
         );
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn test_validate_deposit_amount() {
         struct TestCase {
-            name: '&'static str,
+            name: &'static str,
             deposit_amount: i128,
             current_deposited: i128,
             max_contract_total: i128,
@@ -397,7 +397,7 @@ mod tests {
                 deposit_amount: 1000,
                 current_deposited: 0,
                 max_contract_total: 1000,
-                expected: Ok((),
+                expected: Ok(()),
             },
             TestCase {
                 name: "deposit over single amount max should fail with InvalidMilestoneAmount",
@@ -500,7 +500,7 @@ mod tests {
         let amounts = [100_0000000, 0, 300_0000000];
         match validate_amount_array(&amounts) {
             Ok(_) => panic!("expected failure for partially valid array"),
-            Err(e) => assert_eq(e, crate::EscrowError::AmountMustBePositive),
+            Err(e) => assert_eq!(e, crate::EscrowError::AmountMustBePositive),
         }
     }
 
@@ -510,10 +510,10 @@ mod tests {
         // Each individual deposit is valid against the current state, but the
         // second must be rejected once the first has been applied.
         let max = 1000;
-        let current = 0;
+        let mut current = 0;
         assert!(validate_deposit_amount(600, current, max).is_ok());
         current += 600;
-        assert_eq(
+        assert_eq!(
             validate_deposit_amount(600, current, max),
             Err(crate::EscrowError::InvalidMilestoneAmount)
         );
