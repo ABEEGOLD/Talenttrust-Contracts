@@ -1139,10 +1139,32 @@ impl Escrow {
     // or via dispute resolution. Credits accumulate independently for each
     // completed contract and are consumed one at a time by `issue_reputation`.
     // A `Refunded` contract never calls this helper and therefore earns no credit.
+    //
+    // Failure recovery is deterministic because the accrual policy lives in
+    // exactly one place (`constants::accrue_pending_credit`): the ledger can
+    // never wrap and can never exceed `MAX_PENDING_REPUTATION_CREDITS`. A
+    // rejected accrual panics with a typed error *before* any state is written,
+    // so the whole call rolls back and a retry observes the same ledger value.
+    // The entry is also TTL-bumped so an earned credit cannot be evicted before
+    // the freelancer converts it into a reputation issuance.
     pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
         let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-        env.storage().persistent().set(&pending_key, &(pending + 1));
+
+        // Bounded, checked accrual — see `constants.rs` invariants I1-I4.
+        let new_pending = constants::accrue_pending_credit(pending)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+        env.storage().persistent().set(&pending_key, &new_pending);
+        ttl::extend_pending_reputation_credits_ttl(env, freelancer);
+
+        // Observable accrual: indexers can mirror the recovery ledger from this
+        // event, which makes a missing or stuck credit diagnosable off-chain.
+        // The payload carries only public inputs (address, count, timestamp).
+        env.events().publish(
+            (symbol_short!("rep_crdt"), symbol_short!("granted")),
+            (freelancer.clone(), new_pending, env.ledger().timestamp()),
+        );
     }
 
     /// Releases a specific milestone, transferring the net payout to the freelancer.
@@ -2274,13 +2296,13 @@ impl Escrow {
 
         let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
         let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-        if pending <= 0 {
-            env.panic_with_error(Error::NotCompleted);
-        }
-        let new_pending = pending
-            .checked_sub(1)
-            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        // Deterministic consumption: an empty ledger and a corrupted ledger both
+        // surface as the same typed error, and the stored value is untouched so
+        // a retry fails identically instead of draining twice.
+        let new_pending = constants::consume_pending_credit(pending)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotCompleted));
         env.storage().persistent().set(&pending_key, &new_pending);
+        ttl::extend_pending_reputation_credits_ttl(&env, &contract.freelancer);
 
         let rep_key = DataKey::Reputation(contract.freelancer.clone());
         let mut rep: types::Reputation =
@@ -2359,9 +2381,8 @@ impl Escrow {
     // Checked arithmetic is used throughout; division by zero is impossible
     // because `None` is returned whenever `completed_contracts == 0`.
     pub fn get_average_rating(env: Env, address: Address) -> Option<i128> {
-        // Basis-point scaling factor (Ã—10 000 preserves four decimal places).
-        const SCALE: i128 = 10_000;
-
+        // The basis-point scaling factor is owned by `constants.rs`; a local
+        // copy would be a second source of truth for the same policy value.
         let rep: types::Reputation = env
             .storage()
             .persistent()
@@ -2372,7 +2393,7 @@ impl Escrow {
         }
 
         rep.total_rating
-            .checked_mul(SCALE)
+            .checked_mul(constants::SCALE)
             .and_then(|scaled| scaled.checked_div(rep.completed_contracts))
     }
 
@@ -2382,10 +2403,14 @@ impl Escrow {
     // per successful `issue_reputation` call. Refunded contracts do not accrue
     // pending reputation credits.
     pub fn get_pending_reputation_credits(env: Env, address: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PendingReputationCredits(address))
-            .unwrap_or(0)
+        let key = DataKey::PendingReputationCredits(address.clone());
+        let pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        // Bump-on-read: reading a balance is a read of a durable claim, so the
+        // entry is renewed rather than left to approach eviction.
+        if pending > 0 {
+            ttl::extend_pending_reputation_credits_ttl(&env, &address);
+        }
+        pending
     }
 
     /// Returns a bounded, paginated read view over reputation records.
