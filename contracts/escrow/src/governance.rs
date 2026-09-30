@@ -15,6 +15,10 @@
 //!
 //! 1. `propose_admin(new)` — current admin stores `new` under `PendingAdmin`
 //!    with the current ledger sequence. Self-proposals are rejected.
+//!    If a previous proposal is still active (within TTL), proposing again
+//!    overwrites it and emits a `replaced` event so the superseded proposal
+//!    is observable.  If the previous proposal is already expired, it is
+//!    silently replaced (it was already unacceptable).
 //! 2. `accept_admin()` — the *proposed* address, not the current admin,
 //!    authorizes this call. It must arrive no earlier than
 //!    `ADMIN_ROTATION_MIN_DELAY_LEDGERS` after the proposal (the reaction
@@ -23,6 +27,25 @@
 //!    circumstances that produced it have changed).
 //! 3. `cancel_admin()` — the current admin can abort a pending proposal at any
 //!    time, expired or not.
+//! 4. `recover_admin_proposal()` — the current admin can clean up an expired
+//!    proposal after `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` ledgers have elapsed.
+//!    This is the deterministic recovery path after an `accept_admin` call fails
+//!    with `AdminProposalExpired`.
+//!
+//! ## Failure recovery model
+//!
+//! Soroban panics roll back all storage writes atomically, so no partial state
+//! can be persisted.  The following table documents each failure path and its
+//! deterministic recovery:
+//!
+//! | Failure                       | Cause                                      | Recovery                                    |
+//! |-------------------------------|--------------------------------------------|---------------------------------------------|
+//! | `TimelockNotElapsed`          | `accept_admin` before min-delay ledgers    | Wait; retry `accept_admin` later            |
+//! | `AdminProposalExpired`        | `accept_admin` after TTL ledgers           | Admin calls `recover_admin_proposal` then re-proposes |
+//! | `InvalidState` (accept)       | `accept_admin` with no pending proposal    | Admin calls `propose_admin` first           |
+//! | `InvalidState` (cancel)       | `cancel_admin` with no pending proposal    | No-op; nothing to cancel                    |
+//! | `CannotProposeSelf`           | `propose_admin` with current admin address | Use a different address                     |
+//! | `NotInitialized`              | Any call before `initialize`               | Call `initialize` first                     |
 //!
 //! Every transition clears or overwrites `PendingAdmin` so an accept can never
 //! be replayed against a cancelled or already-consumed proposal: it simply
@@ -152,8 +175,22 @@ impl Escrow {
     /// * [`Error::NotInitialized`] — `initialize` has not been called.
     /// * [`Error::CannotProposeSelf`] — `proposed` is the current admin.
     ///
+    /// # Concurrent re-proposal behaviour
+    ///
+    /// If a previous proposal is still active (within `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS`),
+    /// the new proposal **overwrites** it and an additional
+    /// `(symbol_short!("admin"), Symbol("replaced"))` → `(admin, superseded, timestamp)`
+    /// event is emitted before the normal `proposed` event.  This makes it
+    /// explicit to off-chain observers that the prior candidate was displaced,
+    /// which is the critical signal for any system that monitors pending
+    /// transfers.  An expired proposal is silently replaced — it was already
+    /// unreachable — so no `replaced` event is emitted in that case.
+    ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    ///
+    /// Additional event when overwriting a live proposal:
+    /// `(symbol_short!("admin"), Symbol("replaced"))` → `(admin, superseded_proposed, timestamp)`
     pub(crate) fn propose_admin_impl(env: &Env, proposed: Address) -> bool {
         Self::require_initialized(env);
 
@@ -166,6 +203,31 @@ impl Escrow {
 
         if proposed == admin {
             env.panic_with_error(Error::CannotProposeSelf);
+        }
+
+        // If a previous proposal exists and is still within its acceptance
+        // window, emit a `replaced` event so the superseded candidate address
+        // is observable off-chain.  This makes re-proposals non-silently
+        // deterministic: monitoring tools and the displaced candidate can
+        // detect that their window has been closed.
+        if let Some(existing) =
+            env.storage()
+                .persistent()
+                .get::<_, PendingAdminProposal>(&DataKey::PendingAdmin)
+        {
+            let elapsed = env
+                .ledger()
+                .sequence()
+                .saturating_sub(existing.proposed_at_ledger);
+            // Only emit `replaced` for proposals still within their TTL
+            // (i.e. ones that *could* have been accepted).  Expired proposals
+            // are silently overwritten because they were already unreachable.
+            if elapsed <= ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+                env.events().publish(
+                    (symbol_short!("admin"), Symbol::new(env, "replaced")),
+                    (admin.clone(), existing.proposed, env.ledger().timestamp()),
+                );
+            }
         }
 
         env.storage().persistent().set(
@@ -200,12 +262,17 @@ impl Escrow {
     /// * [`Error::InvalidState`] — there is no pending proposal.
     /// * [`Error::TimelockNotElapsed`] — called before
     ///   `ADMIN_ROTATION_MIN_DELAY_LEDGERS` ledgers have elapsed since the
-    ///   proposal.
+    ///   proposal. Retry after more ledgers have closed.
     /// * [`Error::AdminProposalExpired`] — called after
     ///   `ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS` ledgers have elapsed since the
-    ///   proposal. The stale proposal is left in place (a panic rolls back
-    ///   any state change, so there is nothing to clear here) — call
-    ///   [`Escrow::cancel_admin`] or `propose_admin` again to replace it.
+    ///   proposal. The stale proposal **cannot be cleared inside this call**
+    ///   because Soroban panics roll back all storage writes atomically; the
+    ///   panicking accept cannot both fail and persist a removal.  The
+    ///   deterministic recovery path is:
+    ///   1. The current admin calls [`Escrow::recover_admin_proposal`] to
+    ///      remove the expired record.
+    ///   2. The admin then calls [`Escrow::propose_admin`] with the new
+    ///      address to start a fresh rotation.
     ///
     /// # Events
     /// `(symbol_short!("admin"), Symbol("accepted"))` → `(old_admin, new_admin, timestamp)`
@@ -226,6 +293,11 @@ impl Escrow {
             env.panic_with_error(Error::TimelockNotElapsed);
         }
         if elapsed > ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
+            // The proposal has expired.  Soroban panics roll back all storage
+            // writes atomically, so we cannot clear `PendingAdmin` here while
+            // simultaneously panicking — the removal would be rolled back.
+            // The admin must call `recover_admin_proposal` followed by a fresh
+            // `propose_admin` to regain a clean rotation state.
             env.panic_with_error(Error::AdminProposalExpired);
         }
 
