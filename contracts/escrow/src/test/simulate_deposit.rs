@@ -382,7 +382,6 @@ fn simulate_rejects_paused() {
 mod deposit_failure_recovery_tests {
     use crate::{Contract, ContractStatus, DataKey, Error, Escrow, EscrowClient};
     use soroban_sdk::{
-        symbol_short,
         testutils::{Address as _, Ledger},
         Address, Env,
     };
@@ -398,25 +397,26 @@ mod deposit_failure_recovery_tests {
 
         // Deploy Stellar Asset Contract (SAC) for testing
         let token_admin = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(token_admin);
-        let token_client = stellar_strkey::ed25519::PublicKey::from_payload(&[0; 32]); // placeholder or use token client
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
 
         let escrow_id = env.register(Escrow, ());
         let client_escrow = EscrowClient::new(&env, &escrow_id);
 
-        // Initialize admin and bind settlement token
+        // Initialize admin and bind settlement token (requires admin address + token address)
         client_escrow.initialize(&admin);
-        client_escrow.bind_settlement_token(&token_contract.address());
+        client_escrow.bind_settlement_token(&admin, &token_contract.address());
 
-        // Mint tokens to client for testing deposits
-        let sac_client = soroban_sdk::token::Client::new(&env, &token_contract.address());
-        sac_client.mint(&client, &1_000_000_0000000);
+        // Mint tokens to client for testing deposits using token administration interface
+        let token_admin_client =
+            soroban_sdk::token::StellarAssetClient::new(&env, &token_contract.address());
+        token_admin_client.mint(&client, &1_000_000_0000000);
 
-        // Create a test contract with milestones totaling 500 stroops
+        // Create a test contract with milestones totaling 500 stroops (signature: client, freelancer, arbiter: Option<Address>, milestones, release_auth)
         let milestones = soroban_sdk::vec![&env, 200, 300];
         let contract_id = client_escrow.create_contract(
             &client,
             &freelancer,
+            &None,
             &milestones,
             &crate::ReleaseAuthorization::ClientOnly,
         );
@@ -461,7 +461,6 @@ mod deposit_failure_recovery_tests {
         // Drain client's token balance so the next deposit transfer will fail
         let sac_client = soroban_sdk::token::Client::new(&env, &token_address);
         let current_balance = sac_client.balance(&client);
-        // Transfer all balance away from client to simulate insufficient funds
         let dummy_receiver = Address::generate(&env);
         sac_client.transfer(&client, &dummy_receiver, &current_balance);
 
@@ -469,8 +468,7 @@ mod deposit_failure_recovery_tests {
         assert_eq!(initial_contract_state.funded_amount, 0);
         assert_eq!(initial_contract_state.status, ContractStatus::Created);
 
-        // Attempt deposit — this should trigger a token transfer failure (InsufficientBalance)
-        // and panic safely without corrupting storage.
+        // Attempt deposit — should trigger a token transfer failure and panic safely
         let _ = client_escrow.deposit_funds(&contract_id, &client, &200);
 
         // Invariant check: State must remain strictly untouched
