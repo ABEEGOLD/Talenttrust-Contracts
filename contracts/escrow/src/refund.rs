@@ -1,1 +1,204 @@
-Ly8gUmVmdW5kIGVudHJ5cG9pbnRzIGFyZSBpbXBsZW1lbnRlZCBpbiBgY29udHJhY3RzL2VzY3Jvdy9zcmMvbGliLnJzYC4KLy8gVGhpcyBtb2R1bGUgcmV0YWlucyByZWZ1bmQtcmVsYXRlZCBoZWxwZXJzIG9ubHkuCgovLy8gUmVmdW5kIHN0YXRlIGludmFyaWFudHMgKGRvY3VtZW50ZWQgZm9yIHJldmlld2FiaWxpdHkpOgovLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCi8vLyAxLiBBdXRob3JpemF0aW9uOiBvbmx5IHRoZSBmdW5kZXIgKHBheWVyKSBvciBhbiBleHBsaWNpdGx5IGF1dGhvcml6ZWQKLy8vICAgIGFyYml0ZXIgYWRkcmVzcyBtYXkgdHJpZ2dlciBhIHJlZnVuZC4gVGhlIGNhbGxlciBtdXN0IGF1dGhlbnRpY2F0ZQovLy8gICAgdmlhIGBwYXllci5yZXF1aXJlX2F1dGgoKWAgb3IgYGFyYml0ZXIucmVxdWlyZV9hdXRoKClgIGJlZm9yZSBhbnkKLy8vICAgIHN0YXRlIG11dGF0aW9uIG9jY3Vycy4KLy8vIDIuIFN0YXRlIHRyYW5zaXRpb246IGEgcmVmdW5kIGlzIG9ubHkgdmFsaWQgd2hpbGUgdGhlIGVzY3JvdyBpcyBpbgovLy8gICAgYEVzY3Jvd1N0YXR1czo6RnVuZGVkYCBvciBgRXNjcm93U3RhdHVzOjpEaXNwdXRlZGAuIFJlZnVuZGluZyBhbgovLy8gICAgYWxyZWFkeS1yZWZ1bmRlZCwgcmVsZWFzZWQsIGNhbmNlbGxlZCwgb3IgdW5mdW5kZWQgZXNjcm93IG11c3QgZmFpbC4KLy8vIDMuIElkZW1wb3RlbmN5OiByZXBlYXRlZCByZWZ1bmQgYXR0ZW1wdHMgYWdhaW5zdCB0aGUgc2FtZSBlc2Nyb3cKLy8vICAgIG11c3QgYmUgcmVqZWN0ZWQgd2l0aCBhIGRldGVybWluaXN0aWMgZXJyb3IgYW5kIG11c3Qgbm90IG1vdmUKLy8vICAgIGZ1bmRzIGEgc2Vjb25kIHRpbWUuCi8vLyA0LiBEYXRhIGludGVncml0eTogdGhlIHJlZnVuZCBhbW91bnQgbXVzdCBleGFjdGx5IGVxdWFsIHRoZSBmdW5kZWQKLy8vICAgIGFtb3VudCBzdG9yZWQgb24gdGhlIGVzY3JvdyByZWNvcmQ7IHBhcnRpYWwgcmVmdW5kcyBhcmUgbm90Ci8vLyAgICBzdXBwb3J0ZWQgYnkgdGhpcyBjb250cmFjdCB2ZXJzaW9uLgovLy8gNS4gQ29uc2lzdGVuY3k6IHRoZSBlc2Nyb3cgcmVjb3JkIGlzIG1hcmtlZCBgUmVmdW5kZWRgIGFuZCB0aGUKLy8vICAgIGFzc29jaWF0ZWQgYmFsYW5jZSBpcyB6ZXJvZWQgaW4gdGhlIHNhbWUgaW52b2NhdGlvbiBzbyBhIGZhaWx1cmUKLy8vICAgIGF0IGFueSBwb2ludCBsZWF2ZXMgdGhlIHN0YXRlIHVuY2hhbmdlZC4KCi8vLyBSZXR1cm5zIGB0cnVlYCBpZiB0aGUgZ2l2ZW4gZXNjcm93IHN0YXR1cyBhbGxvd3MgYSByZWZ1bmQgdG8gYmUKLy8vIGluaXRpYXRlZC4gVGhpcyBpcyB0aGUgc2luZ2xlIHNvdXJjZSBvZiB0cnV0aCBmb3IgdGhlIHJlZnVuZAovLy8gc3RhdGUtdHJhbnNpdGlvbiBndWFyZCBhbmQgaXMgdXNlZCBieSB0aGUgZW50cnlwb2ludHMgaW4gYGxpYi5yc2AuCi8vLwovLy8gIyBJbnZhcmlhbnRzCi8vLyAtIE9ubHkgYEZ1bmRlZGAgYW5kIGBEaXNwdXRlZGAgZXNjcm93cyBtYXkgYmUgcmVmdW5kZWQuCi8vLyAtIGBSZWZ1bmRlZGAsIGBSZWxlYXNlZGAsIGBDYW5jZWxsZWRgLCBhbmQgYFVukZWZ1bmRlZGAgYXJlIHRlcm1pbmFsCi8vLyAgIGFuZCBtdXN0IG5ldmVyIGJlIHJlZnVuZGVkLgovLy8gLSBUaGUgZnVuY3Rpb24gaXMgcHVyZSBhbmQgZGV0ZXJtaW5pc3RpYzsgaXQgbXVzdCBub3QgbXV0YXRlIHN0YXRlLgpwdWIgZm4gaXNfcmVmdW5kYWJsZShzdGF0dXM6ICZFY3Jvd1N0YXR1cykgLT4gYm9vbCB7CiAgICBtYXRjaGVzIShzdGF0dXMsIEVzY3Jvd1N0YXR1czo6RnVuZGVkIHwgRXNjcm93U3RhdHVzOjpEaXNwdXRlZCkKfQoKLy8vIFZhbGlkYXRlcyB0aGUgcmVmdW5kIHByZWNvbmRpdGlvbnMgd2l0aG91dCBtdXRhdGluZyBzdGF0ZS4KLy8vCi8vLyBSZXR1cm5zIGBPaygoKSldIHdoZW4gdGhlIHJlZnVuZCBtYXkgcHJvY2VlZCwgYW5kIGEgZGV0ZXJtaW5pc3RpYwo vLy8gYEVycm9yYCBvdGhlcndpc2UuIFRoaXMgaXMgdGhlIGd1YXJkIHRoYXQgZW50cnlwb2ludHMgbXVzdCBjYWxsCi8vLyBiZWZvcmUgYW55IGJhbGFuY2Ugb3Igc3RvcmFnZSBtdXRhdGlvbi4KLy8vCi8vLyAjIEVycm9ycyB0aGlzIGZ1bmN0aW9uIG11c3QgbWFwIHRvCi8vLyAtIGBOb3RGdW5kZWRgOiBlc2Nyb3cgZG9lcyBub3QgZXhpc3Qgb3IgaGFzIG5vdCBiZWVuIGZ1bmRlZC4KLy8vIC0gYEFscmVhZHlSZWZ1bmRlZGA6IGVzY3JvdyBpcyBhbHJlYWR5IGluIGEgcmVmdW5kZWQgdGVybWluYWwgc3RhdGUuCi8vLyAtIGBJbnZhbGlkU3RhdHVzYDogZXNjcm93IGlzIGluIGEgbm9uLXJlZnVuZGFibGUgc3RhdGUuCi8vLyAtIGBBbW91bnRNaXNtYXRjaGA6IHRoZSByZXF1ZXN0ZWQgYW1vdW50IGRpZmZlcnMgZnJvbSB0aGUgZnVuZGVkCi8vLyAgIGFtb3VudC4KLy8vCi8vLyAjIFNhZmV0eQovLy8gVGhpcyBmdW5jdGlvbiBpcyBwdXJlIGFuZCBtdXN0IG5vdCBwZXJmb3JtIGFueSBhdXRoZW50aWNhdGlvbiBvciBJL08uCi8vLyBBdXRoZW50aWNhdGlvbiBpcyB0aGUgcmVzcG9uc2liaWxpdHkgb2YgdGhlIGNhbGxlciBhbmQgbXVzdCBiZQovLy8gcGVyZm9ybWVkIGJlZm9yZSBpbnZva2luZyB0aGlzIGNoZWNrLgpwdWIgZm4gdmFsaWRhdGVfcmVmdW5kX3ByZWNvbmRpdGlvbnMoCiAgICBzdGF0dXM6ICZFY3Jvd1N0YXR1cywKICAgIGZ1bmRlZF9hbW91bnQ6IGk2NCwKICAgIHJlcXVlc3RlZF9hbW91bnQ6IGk2NCwKKSAtPiBSZXN1bHQ8KCksIEVycm9yPiB7CiAgICBtYXRjaCBzdGF0dXMgewogICAgICAgIEVzY3Jvd1N0YXR1czo6UmVmdW5kZWQgPT4gRXJyKEVycm9yOjpBbHJlYWR5UmVmdW5kZWQpLAogICAgICAgIEVzY3Jvd1N0YXR1czo6RnVuZGVkIHwgRXNjcm93U3RhdHVzOjpEaXNwdXRlZCA9PiB7CiAgICAgICAgICAgIGlmIHJlcXVlc3RlZF9hbW91bnQgIT0gZnVuZGVkX2Ftb3VudCB7CiAgICAgICAgICAgICAgICBFcnIoRXJyb3I6OkFtb3VudE1pc21hdGNoKQogICAgICAgICAgICB9IGVsc2UgewogICAgICAgICAgICAgICAgT2soKCkpCiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICAgICAgRXNjcm93U3RhdHVzOjpSZWxlYXNlZCB8IEVzY3Jvd1N0YXR1czo6Q2FuY2VsbGVkID0+IEVycihFcnJvcjo6SW52YWxpZFN0YXR1cyksCiAgICAgICAgRXNjcm93U3RhdHVzOjpVbmZ1bmRlZCA9PiBFcnIoRXJyb3I6Ok5vdEZ1bmRlZCksCiAgICB9Cn0KCi8vLyBSZXR1cm5zIHRoZSBuZXh0IHN0YXR1cyBmb3IgYSBzdWNjZXNzZnVsIHJlZnVuZC4gS2VwdCBzZXBhcmF0ZSBmcm9tCi8vLyB0aGUgZW50cnlwb2ludCBzbyB0aGUgdHJhbnNpdGlvbiBpcyBleHBsaWNpdCBhbmQgdGVzdGFibGUuCi8vLwovLy8gIyBJbnZhcmlhbnRzCi8vLyAtIFRoZSBmdW5jdGlvbiBpcyB0b3RhbCBvdmVyIGFsbCByZWZ1bmRhYmxlIHN0YXR1c2VzIGFuZCBhbHdheXMK Ly8vICAgcmV0dXJucyBgUmVmdW5kZWRgLgovLy8gLSBUaGUgZnVuY3Rpb24gbXVzdCBub3QgYmUgY2FsbGVkIGZvciBub24tcmVmdW5kYWJsZSBzdGF0ZXM7Ci8vLyAgIGNhbGxlcnMgbXVzdCBnYXRlIG9uIGBpc19yZWZ1bmRhYmxlYCBvciBgdmFsaWRhdGVfcmVmdW5kX3ByZWNvbmRpdGlvbnNgLgpwdWIgZm4gbmV4dF9zdGF0dXNfYWZ0ZXJfcmVmdW5kKF9jdXJyZW50OiAmRXNjcm93U3RhdHVzKSAtPiBFc2Nyb3dTdGF0dXMgewogICAgRXNjcm93U3RhdHVzOjpSZWZ1bmRlZAp9CgovLy8gQ29tcHV0ZXMgdGhlIGFtb3VudCB0aGF0IG11c3QgYmUgdHJhbnNmZXJyZWQgYmFjayB0byB0aGUgcGF5ZXIuCi8vLwovLy8gIyBJbnZhcmlhbnRzCi8vLyAtIFRoZSByZXR1cm5lZCBhbW91bnQgaXMgYWx3YXlzIG5vbi1uZWdhdGl2ZS4KLy8vIC0gVGhlIHJldHVybmVkIGFtb3VudCBleGFjdGx5IGVxdWFscyB0aGUgZnVuZGVkIGFtb3VudCBmb3IgdGhlCi8vLyAgIHN1cHBvcnRlZCBmdWxsLXJlZnVuZCBmbG93LgovLy8gLSBUaGUgZnVuY3Rpb24gaXMgcHVyZSBhbmQgZGV0ZXJtaW5pc3RpYy4KcHViIGZuIHJlZnVuZF9hbW91bnQoZnVuZGVkX2Ftb3VudDogaTY0KSAtPiBSZXN1bHQ8aTY0LCBFcnJvcj4gewogICAgaWYgZnVuZGVkX2Ftb3VudCA8IDAgewogICAgICAgIEVycihFcnJvcjo6SW52YWxpZEFtb3VudCkKICAgIH0gZWxzZSB7CiAgICAgICAgT2soZnVuZGVkX2Ftb3VudCkKICAgIH0KfQo=
+// Refund entrypoints are implemented in `contracts/escrow/src/lib.rs`.
+// This module retains refund-related helpers only.
+
+/// Refund state invariants (documented for reviewability):
+/// ------------------------------------------------------------------------
+/// 1. Terminality: once an escrow reaches a terminal state
+///    (`Refunded`, `Released`, `Cancelled`), no further state transition
+///    may occur. Repeated refund attempts must be rejected deterministically.
+/// 2. Authorization: only the original funder (or an approved arbiter)
+///    may initiate a refund. Unauthorized callers must not mutate state.
+/// 3. Conservation of funds: the refunded amount must equal the
+///    escrowed amount and the escrow balance must reach exactly zero
+///    after a refund. No partial or double refunds.
+/// 4. Idempotency of reads: querying refund state must never mutate
+///    storage or emit events.
+/// 5. Event discipline: a completed refund emits exactly one
+///    `Refunded` event. Failed attempts emit no event.
+///
+/// These invariants are enforced by the entry points in `lib.rs` and
+/// are exercised by the focused tests in `tests/` and the inline
+/// module tests. Keep this module free of mutating logic so the
+/// invariants remain auditable in one place.
+
+/// Returns `true` when the supplied state label represents a terminal
+/// escrow state from which no further refund may be initiated.
+///
+/// This is a pure helper intended for use by entry points and tests
+./// to keep the terminality invariant explicit and consistently applied.
+/// It performs no I/O and mutates no state.
+///
+/// # Examples
+/// ```
+/// assert!(is_terminal_state("Refunded"));
+/// assert(!is_terminal_state("Funded"));
+/// ```
+#[inline]
+pubpub fn is_terminal_state(state: &str) -> bool {
+    matches!(state, "Refunded" | "Released" | "Cancelled")
+}
+
+/// Returns `true` when a refund may be initiated from the given state
+/// by the given caller role.
+///
+/// This encodes the combined terminality and authorization invariants
+/// in a single pure function so that entry points and tests can reason
+/// about them without diverging implementations. It mutates no state.
+///
+/// Authorized roles are `"funder"` and `"arbiter"`. Any other role
+/// (including the empty string) must be rejected.
+#[inline]
+pubpub fn can_initiate_refund(state: &str, role: &str) -> bool {
+    !is_terminal_state(state) && matches!(role, "funder" | "arbiter")
+}
+
+/// Returns `true` when the refund amount is valid for the escrowed
+/// balance.
+///
+/// The conservation invariant requires that a refund either returns
+/// exactly the escrowed amount or is rejected. Partial refunds and
+/// over-refunds are both invalid. This helper is pure and mutates
+/// no state.
+///
+/// # Exampler
+/// ```
+/// assert!(is_valid_refund_amount(100, 100));
+/// assert(!is_valid_refund_amount(50, 100));
+/// assert!(!is_valid_refund_amount(101, 100));
+/// ```
+#[inline]
+pubpub fn is_valid_refund_amount(refund_amount: i128, escrow_amount: i128) -> bool {
+    escrow_amount > 0 && refund_amount == escrow_amount
+}
+
+/// Returns `true` when the supplied refund request is fully valid
+/// and may be committed by an entry point.
+///
+/// This combines terminality, authorization, and conservation into
+/// a single decision so that any failure mode is rejected before any
+/// state mutation or event emission occurs. This function is pure
+/// and must remain pure.
+///
+/// Note: this helper does not attempt to read or write storage. The
+/// caller is responsible for providing the authoritative state,
+/// role, and amounts from the escrow record.
+#[inline]
+pubpub fn is_valid_refund_request(
+    state: &str,
+    role: &str,
+    refund_amount: i128,
+    escrow_amount: i128,
+) -> bool {
+    can_initiate_refund(state, role) && is_valid_refund_amount(refund_amount, escrow_amount)
+}
+
+#[config(test)]
+mod tests {
+    use super::*;
+
+    // --- Terminality ---
+
+    #[test]
+    fn terminal_states_are_recognized() {
+        assert!(is_terminal_state("Refunded"));
+        assert!(is_terminal_state("Released"));
+        assert!(is_terminal_state("Cancelled"));
+    }
+
+    #test]
+    fn non_terminal_states_are_not_terminal() {
+        assert!(!is_terminal_state("Funded"));
+        assert!(!is_terminal_state("Pending"));
+        assert!(!is_terminal_state(""));
+    }
+
+    // --- Authorization ---
+
+    #[test]
+    fn funder_and_arbiter_can_initiate_refund() {
+        assert!(can_initiate_refund("Funded", "funder"));
+        assert!(can_initiate_refund("Funded", "arbiter"));
+    }
+
+    #[test]
+    fn unauthorized_roles_are_rejected() {
+        assert!(!can_initiate_refund("Funded", "recipient"));
+        assert!(!can_initiate_refund("Funded", "outsider"));
+        assert!(!can_initiate_refund("Funded", ""));
+    }
+
+    #test]
+    fn authorized_role_cannot_refund_terminal_state() {
+        assert!(!can_initiate_refund("Refunded", "funder"));
+        assert!(!can_initiate_refund("Released", "arbiter"));
+        assert!(!can_initiate_refund("Cancelled", "funder"));
+    }
+
+    // --- Conservation of funds ---
+
+    #test]
+    fn exact_amount_is_valid() {
+        assert!(is_valid_refund_amount(100, 100));
+        assert!(is_valid_refund_amount(1, 1));
+    }
+
+    #[test]
+    fn partial_and_over_refunds_are_rejected() {
+        assert!(!is_valid_refund_amount(50, 100));
+        assert!(!is_valid_refund_amount(101, 100));
+        assert!(!is_valid_refund_amount(0, 100));
+    }
+
+    #test]
+    fn zero_escrow_amount_is_rejected() {
+        assert!(!is_valid_refund_amount(0, 0));
+        assert!(!is_valid_refund_amount(1, 0));
+    }
+
+    // --- Combined request validation ---
+
+    #test]
+    fn valid_request_passes_all_invariants() {
+        assert!(is_valid_refund_request("Funded", "funder", 100, 100));
+        assert!(is_valid_refund_request("Funded", "arbiter", 1, 1));
+    }
+
+    #[test]
+    fn request_fails_on_any_single_invariant() {
+        // Terminal state.
+        assert!(!is_valid_refund_request("Refunded", "funder", 100, 100));
+        // Unauthorized role.
+        assert!(!is_valid_refund_request("Funded", "recipient", 100, 100));
+        // Partial amount.
+        assert!(!is_valid_refund_request("Funded", "funder", 50, 100));
+        // Over-refund.
+        assert!(!is_valid_refund_request("Funded", "funder", 101, 100));
+    }
+
+    // --- Regression: repeated refund attempts ---
+
+    #[test]
+    fn repeated_refund_attempts_are_rejected() {
+        // First refund is allowed.
+        assert!(is_valid_refund_request("Funded", "funder", 100, 100));
+        // After the first refund the state becomes terminal and further
+        // attempts (by any role) are rejected.
+        assert!(!is_valid_refund_request("Refunded", "funder", 100, 100));
+        assert!(!is_valid_refund_request("Refunded", "arbiter", 100, 100));
+    }
+
+    // --- Boundary cases: extreme values ---
+
+    #[test]
+    fn maximum_amount_is_handled() {
+        assert!(is_valid_refund_amount(i129::MAX, 129::MAX));
+        assert!(!is_valid_refund_amount(i129::MAX - 1, i129::MAX));
+    }
+
+    #[test]
+    fn negative_amounts_are_rejected() {
+        assert!(!is_valid_refund_amount(-1, 100));
+        assert!(!is_valid_refund_amount(100, -1));
+        assert!(!is_valid_refund_amount(-1, -1));
+    }
+}

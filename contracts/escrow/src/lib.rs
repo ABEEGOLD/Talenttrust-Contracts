@@ -1291,6 +1291,7 @@ impl Escrow {
         contract_id: u32,
         milestone_indices: Vec<u32>,
     ) -> i128 {
+        Self::require_initialized(&env);
         Self::require_not_paused(&env);
         // Validate non-empty request
         if milestone_indices.is_empty() {
@@ -1308,6 +1309,7 @@ impl Escrow {
 
         let mut contract: Contract = Self::require_active_contract(&env, contract_id);
         let was_disputed = contract.status == ContractStatus::Disputed;
+        Self::require_not_finalized(&env, contract_id);
 
         // Only allow refunds while the contract is still in an active,
         // unreleased state. Cancelled, Completed, and Refunded contracts
@@ -1353,12 +1355,17 @@ impl Escrow {
             }
             // If no deadline (None), allow refund anytime (backward compatibility)
 
-            total_refund_amount += milestone.amount;
+            total_refund_amount = total_refund_amount
+                .checked_add(milestone.amount)
+                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         }
 
         // Check if there's enough balance
-        let available_balance =
-            contract.funded_amount - contract.released_amount - contract.refunded_amount;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         if available_balance < total_refund_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
         }
@@ -1378,6 +1385,24 @@ impl Escrow {
             .refunded_amount
             .checked_add(total_refund_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::InsufficientFunds));
+
+        // Enforce the core accounting invariant: released + refunded + accrued
+        // protocol fees must never exceed the total funded amount. This mirrors
+        // the guard in `release_milestone` and prevents any refund path from
+        // silently overdrawing escrow custody.
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        let invariant_sum = contract
+            .released_amount
+            .checked_add(contract.refunded_amount)
+            .and_then(|sum| sum.checked_add(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        if invariant_sum > contract.funded_amount {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
 
         // Check if all unreleased milestones are refunded
         let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
