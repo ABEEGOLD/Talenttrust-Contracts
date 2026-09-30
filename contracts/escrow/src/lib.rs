@@ -109,6 +109,8 @@ pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
+pub use approvals::ApprovalRole;
+pub use approvals::RevocationOutcome;
 pub use constants::PAGE_CEILING;
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
@@ -131,9 +133,10 @@ pub use types::{
     AuthorizationRecord, Contract, ContractBounds, ContractStatus, ContractSummary, DataKey,
     DepositMode, DisputeConfig, DisputeMetadata, DisputeResolution, DisputeSplit,
     GovernanceProposal, GovernanceProposalKind, GovernanceProposalState, GovernedParameters,
-    Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary, PauseScope, PauseTarget,
-    PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
+    Milestone, MilestoneApprovals, MilestoneProgress, MilestoneReleaseReadiness, MilestoneSummary,
+    PauseScope, PauseTarget, PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization,
+    Reputation, ReputationConfig, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    DISPUTE_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -374,6 +377,149 @@ impl Escrow {
             (milestone_index, caller.clone(), env.ledger().timestamp()),
         );
         true
+    }
+
+    /// Withdraws the caller's own milestone release approval.
+    ///
+    /// The deterministic recovery path for an approval that was recorded but
+    /// should not stand. A client who approved a milestone prematurely, or who
+    /// discovered a problem before release, would otherwise be unable to undo
+    /// the approval for up to `PENDING_APPROVAL_TTL_LEDGERS` (~7 days).
+    ///
+    /// # Guarantees
+    /// - **Own flag only.** Clears only the flag matching `caller`'s role
+    ///   (client, freelancer, or arbiter). Other parties' approvals are
+    ///   untouched, so a `MultiSig` participant cannot sabotage a set it is not
+    ///   part of.
+    /// - **Authority-reducing only.** No branch of this path sets a flag, so a
+    ///   revoke can never move a milestone from insufficient to sufficient
+    ///   approvals. This makes it safe under concurrent approve/revoke
+    ///   interleavings and safe to call in any contract state.
+    /// - **No deadline extension.** A revoke never bumps the approval TTL, so
+    ///   surviving approvals keep their original expiry and recovery cannot
+    ///   silently prolong an approval window.
+    /// - **No partial state.** Either the flag is cleared or storage is
+    ///   untouched; a rejected revoke leaves no residue.
+    /// - **Empty records are removed.** When the last flag is cleared the
+    ///   temporary record is deleted, so the resulting state is identical to
+    ///   "never approved".
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract ID
+    /// * `caller` - The party withdrawing its approval. Must be the client, the
+    ///   freelancer, or the assigned arbiter, and must authorize the call.
+    /// * `milestone_index` - The index of the milestone to withdraw approval for
+    ///
+    /// # Returns
+    /// `true` if the caller's approval was withdrawn.
+    ///
+    /// # Errors
+    /// * `ContractPaused` - If the contract is paused or in an active emergency
+    /// * `AlreadyFinalized` - If the contract has already been finalized
+    /// * `ContractNotFound` - If the contract or its milestone vector is missing
+    /// * `UnauthorizedRole` - If `caller` is not a contract participant
+    /// * `IndexOutOfBounds` - If `milestone_index` is not a valid milestone
+    /// * `MilestoneAlreadyReleased` - If the milestone is already released
+    /// * `InsufficientApprovals` - If no live approval record exists, or the
+    ///   caller's own flag is not currently set. This covers "never approved",
+    ///   "already revoked", and "evicted by TTL"; all three require a fresh
+    ///   approval, and the call is safely retryable because it mutates nothing.
+    ///
+    /// # Events
+    /// On success this publishes `mlstn_rvk` so indexers and clients can
+    /// observe revocation without polling. The payload distinguishes the two
+    /// outcomes:
+    ///
+    /// * Topics: `(Symbol "mlstn_rvk", contract_id)`
+    /// * Data: `(milestone_index: u32, caller: Address, record_removed: bool,
+    ///   other_approvals_remain: bool, timestamp: u64)`
+    ///
+    ///   where `record_removed` is `true` only when this revoke cleared the
+    ///   final flag and deleted the record. The event fires only after the
+    ///   storage write succeeds; rejected revokes panic earlier and publish
+    ///   nothing. All fields are public contract state — no private data.
+    ///
+    /// # Examples
+    /// Withdraw a premature approval, then re-approve to start a fresh window:
+    ///
+    /// ```text
+    /// revoke_milestone_approval(contract_id, client, milestone_index) // true
+    /// approve_milestone_release(contract_id, client, milestone_index)  // fresh TTL
+    /// ```
+    ///
+    /// See `docs/escrow/approvals-and-release.md` and
+    /// `docs/escrow/authorization.md` for the full approval state machine.
+    pub fn revoke_milestone_approval(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_index: u32,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        Self::require_not_finalized(&env, contract_id);
+
+        // Authenticate the caller before touching approval state so a
+        // non-participant can never probe record existence.
+        caller.require_auth();
+
+        let result = approvals::revoke_approval(&env, contract_id, milestone_index, &caller)
+            .unwrap_or_else(|e| env.panic_with_error(e));
+
+        env.events().publish(
+            (symbol_short!("mlstn_rvk"), contract_id),
+            (
+                milestone_index,
+                caller.clone(),
+                result.outcome == approvals::RevocationOutcome::RecordRemoved,
+                result.other_approvals_remain,
+                env.ledger().timestamp(),
+            ),
+        );
+
+        true
+    }
+
+    /// Returns why a milestone is or is not currently releasable.
+    ///
+    /// Read-only diagnostic view. `release_milestone` denies an insufficient
+    /// approval set with `InsufficientApprovals`; this entrypoint turns that
+    /// rejection into an actionable instruction without requiring the caller
+    /// to fetch the contract, the milestone, and the approval record and
+    /// recompute the sufficiency rule.
+    ///
+    /// # Distinguishable outcomes
+    /// - milestone `released` / `refunded` - settled; no approval is useful
+    /// - `release_authorized` - approvals are sufficient right now
+    /// - `has_record == false` and not settled - no live record, which covers
+    ///   both "never approved" and "evicted by TTL"; a fresh approval is needed
+    /// - `approvals_missing > 0` with `has_record == true` - a partial set is
+    ///   live; the remaining parties may approve, or withdraw via
+    ///   `revoke_milestone_approval`
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract ID
+    /// * `milestone_index` - The milestone to inspect
+    ///
+    /// # Returns
+    /// A [`MilestoneReleaseReadiness`] view.
+    ///
+    /// # Empty-safe
+    /// An unknown `contract_id` or an out-of-range `milestone_index` returns a
+    /// fully-defaulted view rather than panicking, so this is safe to use as a
+    /// cheap polling probe.
+    ///
+    /// # Cost semantics
+    /// This reads persistent and temporary state but never mutates either. It
+    /// deliberately does **not** bump the approval TTL, so polling cannot
+    /// extend an approval window that the caller is only observing.
+    pub fn get_milestone_release_readiness(
+        env: Env,
+        contract_id: u32,
+        milestone_index: u32,
+    ) -> MilestoneReleaseReadiness {
+        approvals::release_readiness(&env, contract_id, milestone_index)
     }
 
     pub fn release_milestone(
@@ -1646,7 +1792,10 @@ impl Escrow {
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
-        contract.funded_amount - contract.released_amount - contract.refunded_amount - accumulated_fees
+        contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees
     }
 
     // Retrieves approval status for a milestone.
@@ -2077,6 +2226,12 @@ impl Escrow {
         }
 
         let old_status = contract.status;
+
+        // Void any outstanding approvals before the contract becomes terminal.
+        // A cancelled contract is never releasable, so a surviving approval
+        // would be pure stale state that reads as "authorized" to clients
+        // polling approval state.
+        approvals::clear_all_approvals(&env, contract_id);
 
         let refund_amount =
             contract.funded_amount - contract.released_amount - contract.refunded_amount;
@@ -2989,6 +3144,17 @@ impl Escrow {
         let milestones = ttl::load_milestones(&env, contract_id);
         rollback::store_dispute_rollback(&env, contract_id, &contract, &milestones);
 
+        // Void every outstanding approval the moment a dispute opens.
+        //
+        // A dispute is an assertion that the prior release authorization was
+        // invalid, so any approval recorded before it is no longer a valid
+        // consent. This is what prevents the resurrection hole: because
+        // `rollback_dispute` restores the pre-dispute `Funded` status, a
+        // surviving pre-dispute approval would otherwise become releasable
+        // again with no party having re-consented. After a rollback the parties
+        // must re-approve, which is the intended recovery path.
+        approvals::clear_all_approvals(&env, contract_id);
+
         let metadata = DisputeMetadata {
             schema_version: DISPUTE_STORAGE_VERSION,
             raised_by: caller.clone(),
@@ -3119,6 +3285,13 @@ impl Escrow {
             .set(&DataKey::Contract(contract_id), &contract);
         rollback::clear_dispute_rollback(&env, contract_id);
         dispute::clear_dispute_metadata(&env, contract_id);
+
+        // A resolved contract is terminal for every unreleased milestone, so no
+        // leftover approval may survive. Defensive: `raise_dispute` already
+        // cleared them, so this is normally a no-op. It is retained so a
+        // record written by a contract version predating the raise-time clear
+        // cannot linger into a terminal state.
+        approvals::clear_all_approvals(&env, contract_id);
 
         ttl::extend_contract_ttl(&env, contract_id);
 
