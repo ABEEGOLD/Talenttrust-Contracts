@@ -48,8 +48,8 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
     );
 }
 
-/// Validate that event payload amounts are non-negative.
-/// Returns `Ok(())` when all amounts are >= 0.
+/// Validate that event payload amounts are non-negative and satisfy accounting invariants.
+/// Returns `Ok(())` when all amounts are >= 0 and sum correctly.
 pub(crate) fn validate_event_amounts(
     funded_amount: i128,
     released_amount: i128,
@@ -59,6 +59,20 @@ pub(crate) fn validate_event_amounts(
     if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || total_deposited < 0 {
         return Err(EscrowError::AmountMustBePositive);
     }
+
+    // Invariant: The sum of funded (currently in escrow), released (paid to freelancer),
+    // and refunded (returned to client) MUST exactly equal total_deposited.
+    let sum_1 = funded_amount
+        .checked_add(released_amount)
+        .ok_or(EscrowError::AccountingInvariantViolated)?;
+    let total_accounted = sum_1
+        .checked_add(refunded_amount)
+        .ok_or(EscrowError::AccountingInvariantViolated)?;
+
+    if total_accounted != total_deposited {
+        return Err(EscrowError::AccountingInvariantViolated);
+    }
+
     Ok(())
 }
 
