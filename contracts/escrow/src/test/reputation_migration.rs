@@ -8,7 +8,7 @@
 //! | v1 record with zero values migrates cleanly | [`migration_v1_zero_values_migrates`] |
 //! | v2 (current) record is a no-op, returns false | [`migration_current_version_is_noop`] |
 //! | Absent record (never written) is a no-op, storage untouched | [`migration_absent_record_is_noop`] |
-//! | migration-on-read via get_reputation upgrades v1 in place | [`get_reputation_transparently_migrates_v1`] |
+//! | migration-on-read helper upgrades v1 when called explicitly | [`get_reputation_is_read_only_does_not_migrate_v1`] |
 //! | get_reputation on absent address returns None | [`get_reputation_absent_returns_none`] |
 //! | multiple migrate calls are idempotent | [`migrate_is_idempotent`] |
 //! | migrate_reputation_storage public entrypoint returns true on migration | [`public_entrypoint_returns_true_on_migration`] |
@@ -218,6 +218,24 @@ fn migration_absent_record_is_noop() {
         None,
         "no version marker must be written for an absent record"
     );
+
+    // Repeated calls stay no-op and still write nothing (retry safety).
+    let retry = env.as_contract(&escrow_addr, || {
+        migrate_reputation_storage_impl(&env, &unknown)
+    });
+    assert!(!retry, "retry on absent record must also return false");
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &unknown),
+        None,
+        "retry must not create a version marker"
+    );
+    env.as_contract(&escrow_addr, || {
+        assert_eq!(
+            read_reputation_version(&env, &unknown),
+            1,
+            "absent record must read as v1 legacy"
+        );
+    });
 }
 
 /// Multiple successive migration calls are idempotent: only the first
@@ -248,14 +266,21 @@ fn migrate_is_idempotent() {
     assert_eq!(after.completed_contracts, 2);
     assert_eq!(after.total_rating, 9);
     assert_eq!(after.last_rating, 5);
+    // Marker pinned to current version after idempotent retries.
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION),
+        "version marker must stay at current version after retries"
+    );
 }
 
-// ── Migration-on-read ────────────────────────────────────────────────────────
+// ── Getter read-only invariant ───────────────────────────────────────────────
 
-/// `get_reputation` transparently migrates a v1 record so callers always see
-/// versioned data without an explicit migration call.
+/// `get_reputation` stays read-only for RPC simulation safety: it returns v1
+/// data as-is without writing a version marker. Explicit
+/// `migrate_reputation_storage` owns all state writes.
 #[test]
-fn get_reputation_transparently_migrates_v1() {
+fn get_reputation_is_read_only_does_not_migrate_v1() {
     let env = Env::default();
     env.mock_all_auths();
     let escrow_client = register_client(&env);
@@ -272,7 +297,7 @@ fn get_reputation_transparently_migrates_v1() {
     // Confirm no version marker before the read.
     assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), None);
 
-    // get_reputation should trigger migration silently.
+    // get_reputation must NOT mutate storage.
     let result = escrow_client.get_reputation(&freelancer);
     assert!(result.is_some(), "expected a reputation record");
     let rep = result.unwrap();
@@ -280,11 +305,19 @@ fn get_reputation_transparently_migrates_v1() {
     assert_eq!(rep.total_rating, 22);
     assert_eq!(rep.last_rating, 4);
 
-    // Version marker must now be present.
+    // Version marker must still be absent after a read.
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        None,
+        "get_reputation must not write a version marker"
+    );
+
+    // Explicit migration still upgrades afterwards (retry-safe).
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
     assert_eq!(
         read_version_direct(&env, &escrow_addr, &freelancer),
         Some(REPUTATION_STORAGE_VERSION),
-        "get_reputation must leave a version marker after silent migration"
+        "explicit migration must write the version marker"
     );
 }
 
