@@ -15,6 +15,7 @@ mod approval_expiry;
 mod budget;
 mod cancel_contract;
 mod client_migration;
+mod constants_concurrent; // #1405: concurrent-execution safety tests for constants
 // Temporarily unwired: EscrowClient missing governance setters under cfg(test) merge.
 // mod configurable_limits;
 mod contracts_boundary;

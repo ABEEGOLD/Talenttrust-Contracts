@@ -109,7 +109,9 @@ pub use amount_validation::validate_deposit_amount;
 pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
-pub use constants::PAGE_CEILING;
+pub use constants::{
+    MAX_COMMENT_BYTES, MAX_RATING, MIN_RATING, PAGE_CEILING, REPUTATION_CREDIT_INCREMENT, SCALE,
+};
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
     DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
