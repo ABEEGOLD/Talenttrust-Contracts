@@ -85,37 +85,19 @@ pub fn validate_deposit(
     }
 }
 
-/// Deposits funds into the contract deterministically.
-///
-/// Enforces the fail-closed invariant: token transfer from client happens
-/// AFTER preflight validation and BEFORE state mutation. If the token transfer fails,
-/// storage and accounting remain completely untouched.
+/// Deposits funds into the contract. Transitions to Funded status when fully funded.
 pub fn deposit_funds_impl(env: &Env, contract_id: u32, caller: Address, amount: i128) -> bool {
-    // 1. Preflight validation (fail-fast, read-only)
     let validated = validate_deposit(env, contract_id, &caller, amount);
-
-    // 2. Authorize caller before token movement
-    caller.require_auth();
-
-    // 3. Pull tokens from client via Stellar Asset Contract (SAC) BEFORE updating ledger state.
-    // This ensures a failed transfer (e.g. insufficient funds) leaves contract accounting untouched.
-    let settlement_token: Address = env
-        .storage()
-        .persistent()
-        .get(&DataKey::SettlementToken)
-        .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
-
-    let token_client = token::Client::new(env, &settlement_token);
-    token_client.transfer(&caller, &env.current_contract_address(), &amount);
-
-    // 4. Apply state changes only after successful token transfer
-    apply_validated_deposit_committed(env, contract_id, validated)
+    apply_validated_deposit(env, contract_id, caller, validated)
 }
 
-/// Apply a deposit to storage once validation and token transfers have successfully completed.
-pub fn apply_validated_deposit_committed(
+/// Apply a deposit after the caller has been validated and the token transfer succeeded.
+/// Enforces the fail-closed "Pull-Before-Update" pattern: token transfer happens
+/// strictly BEFORE persistent state mutation.
+pub fn apply_validated_deposit(
     env: &Env,
     contract_id: u32,
+    caller: Address,
     validated: ValidatedDeposit,
 ) -> bool {
     let ValidatedDeposit {
@@ -124,6 +106,23 @@ pub fn apply_validated_deposit_committed(
         new_total_deposited,
         total_amount,
     } = validated;
+
+    caller.require_auth();
+
+    // Pull tokens from client via Stellar Asset Contract (SAC) BEFORE updating ledger state.
+    let settlement_token: Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementToken)
+        .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
+
+    let token_client = token::Client::new(env, &settlement_token);
+    let amount_to_transfer = new_funded_amount - contract.funded_amount;
+    token_client.transfer(
+        &caller,
+        &env.current_contract_address(),
+        &amount_to_transfer,
+    );
 
     ttl::extend_contract_ttl(env, contract_id);
 
