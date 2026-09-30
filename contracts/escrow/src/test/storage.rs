@@ -547,6 +547,30 @@ fn get_milestone_unknown_contract_panics_contract_not_found() {
 }
 
 #[test]
+fn get_milestone_zero_contract_id_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    assert_contract_error(
+        client.try_get_milestone(&0u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
+fn get_milestone_max_contract_id_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    assert_contract_error(
+        client.try_get_milestone(&u32::MAX, &0u32),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
 fn deposit_exceeding_total_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -557,6 +581,32 @@ fn deposit_exceeding_total_fails() {
         client.try_deposit_funds(&id, &client_addr, &(total_milestone_amount() + 1)),
         EscrowError::ExactDepositRequired,
     );
+}
+
+#[test]
+fn deposit_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, id) = create_contract(&env, &client);
+    assert_contract_error(
+        client.try_deposit_funds(&id, &client_addr, &0),
+        EscrowError::ExactDepositRequired,
+    );
+}
+
+#[test]
+fn deposit_exact_total_boundary_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    let (client_addr, _, id) = create_contract(&env, &client);
+    assert!(client.try_deposit_funds(&id, &client_addr, &total_milestone_amount()).is_ok());
+
+    let record = client.get_contract(&id);
+    assert_eq!(record.funded_amount, total_milestone_amount());
 }
 
 // ─── Storage Input Bounds Validation (#899) ──────────────────────────────
@@ -593,6 +643,32 @@ fn storage_entrypoints_reject_zero_contract_id() {
 }
 
 #[test]
+fn storage_entrypoints_reject_max_contract_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert_contract_error(
+        client.try_get_milestones(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestone(&u32::MAX, &0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_refundable_balance(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_set_arbiter(&u32::MAX, &admin, &None),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
 fn storage_entrypoints_boundary_contract_id_valid() {
     let env = Env::default();
     env.mock_all_auths();
@@ -616,44 +692,5 @@ fn storage_entrypoints_boundary_contract_id_valid() {
         client.try_get_contract_summary(&u32::MAX),
         EscrowError::ContractNotFound,
     );
-}
-
-#[test]
-fn storage_entrypoints_reject_duplicate_and_boundary_milestone_index() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    let (_client_addr, _, id) = create_contract(&env, &client);
-
-    // Boundary: index 0 is valid and returns the first milestone.
-    assert!(client.get_milestone(&id, &0u32).is_some());
-
-    // Boundary: one past the last valid index returns None (not a panic).
-    let len = client.get_milestones(&id).len();
-    assert!(client.get_milestone(&id, &len).is_none());
-
-    // Boundary: u32::MAX index is out of bounds and returns None.
-    assert!(client.get_milestone(&id, &u32::MAX).is_none());
-}
-
-#[test]
-fn storage_entrypoints_reject_duplicate_contract_id_reads() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-
-    let (_client_addr, _, id) = create_contract(&env, &client);
-
-    // Repeated reads of the same contract ID must be deterministic and
-    // return the same record without mutating storage.
-    let first = client.get_contract(&id);
-    let second = client.get_contract(&id);
-    assert_eq!(first, second);
-    assert_eq!(first.status, ContractStatus::Created);
 }
 

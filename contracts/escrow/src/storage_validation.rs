@@ -1,5 +1,4 @@
 //! Bounds validation for storage entrypoint inputs.
-//! Bounds validation for storage entrypoint inputs.
 //!
 //! This module extracts numeric and length bound checks for storage-mutating
 //! entrypoints into a single source of truth. Each function validates one
@@ -9,15 +8,29 @@
 //! All functions are pure (no side-effects) and intended to be called at the
 //! top of the corresponding entrypoint, before any state mutation occurs.
 //!
-//! Invariants enforced here are the single source of truth for storage
-//! entrypoint bounds; entrypoints must not duplicate these checks.
+//! # Invariants
+//!
+//! * Every validator is total: it either returns `()` or panics with a typed
+//!   error. It never mutates state, never allocates unbounded memory, and
+//!   never performs I/O.
+//! * Validators are idempotent and side-effect free, so they may be safely
+//!   re-run on retries or after a partial failure without changing the
+//!   outcome.
+//! * Boundary values are inclusive on the accepted side and rejected on the
+//!   first out-of-range value (e.g. `MAX_MILESTONES` is accepted,
+//!   `MAX_MILESTONES + 1` is rejected).
+//! * Duplicate submissions are handled by the caller's state machine; these
+//!   validators only assert that the *shape* of the input is well-formed, so
+//!   a duplicate that reaches a validator is validated identically to a
+//!   first-time submission.
+//! * Rejections never leak sensitive data: only the typed error code is
+//!   surfaced to the caller.
 
 use crate::milestones_consts::{
     MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING,
     MAX_REPUTATION_CONFIG_RATING_CEILING, MIN_COMMENT_BYTES, MIN_RATING,
 };
 use crate::{Error, EscrowError};
-use crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 use soroban_sdk::Env;
 
 /// Validate the governed total escrow cap in stroops.
@@ -29,12 +42,15 @@ use soroban_sdk::Env;
 /// * `0` — a zero cap would block every contract creation.
 /// * Negative values — amounts must be positive.
 ///
+/// # Boundary behavior
+/// * `1` is accepted (smallest positive cap).
+/// * `i128::MAX` is accepted (largest representable cap).
+/// * `0`, `-1`, and `i128::MIN` are rejected.
+///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
 /// of range.
 pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i128) {
-    // Invariant: cap must be strictly positive so every contract creation
-    // has a non-zero budget. i128::MAX is accepted as an upper bound.
     if max_escrow_total_stroops <= 0 {
         env.panic_with_error(Error::InvalidProtocolParameters);
     }
@@ -47,6 +63,12 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 /// * `max_rating` in `[min_rating, 10]`
 /// * `max_comment_bytes` in `[1, 1_000]`
 ///
+/// # Boundary behavior
+/// * `min_rating == max_rating` is accepted (single-value range).
+/// * `max_comment_bytes == 1` and `max_comment_bytes == 1_000` are accepted.
+/// * `min_rating == 0`, `max_rating < min_rating`, `max_rating > 10`,
+///   `max_comment_bytes == 0`, and `max_comment_bytes > 1_000` are rejected.
+///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
 pub(crate) fn validate_reputation_config_params(
@@ -55,9 +77,6 @@ pub(crate) fn validate_reputation_config_params(
     max_rating: u32,
     max_comment_bytes: u32,
 ) {
-    // Invariant: min_rating >= MIN_RATING, max_rating >= min_rating,
-    // max_rating <= ceiling, and comment bytes within [MIN, CEILING].
-    // Equality (min == max) is a valid degenerate range.
     if min_rating < MIN_RATING
         || max_rating < min_rating
         || max_rating > MAX_REPUTATION_CONFIG_RATING_CEILING
@@ -77,12 +96,14 @@ pub(crate) fn validate_reputation_config_params(
 /// * `0` — at least one milestone is required.
 /// * Values > `MAX_MILESTONES` (10).
 ///
+/// # Boundary behavior
+/// * `1` and `MAX_MILESTONES` are accepted.
+/// * `0`, `MAX_MILESTONES + 1`, and `u32::MAX` are rejected.
+///
 /// # Panics
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
 /// [`EscrowError::TooManyMilestones`] when `count > MAX_MILESTONES`.
 pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
-    // Invariant: at least one milestone is required and the count must not
-    // exceed the protocol maximum. Zero and overflow are distinct errors.
     if count == 0 {
         env.panic_with_error(EscrowError::EmptyMilestones);
     }
@@ -96,11 +117,13 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 /// # Accepted values
 /// * `bps` in `[0, MAX_FEE_BPS]` (0–10 000).
 ///
+/// # Boundary behavior
+/// * `0` and `MAX_FEE_BPS` are accepted.
+/// * `MAX_FEE_BPS + 1` and `u32::MAX` are rejected.
+///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
 pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
-    // Invariant: fee is inclusive of 0 (no fee) and capped at MAX_FEE_BPS
-    // (10 000 bps == 100%). Values above the cap are rejected.
     if bps > MAX_FEE_BPS {
         env.panic_with_error(Error::InvalidProtocolParameters);
     }
@@ -111,16 +134,18 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// # Accepted values
 /// * `amount` in `(0, MAX_SINGLE_AMOUNT_STROOPS]`.
 ///
+/// # Boundary behavior
+/// * `1` and `MAX_SINGLE_AMOUNT_STROOPS` are accepted.
+/// * `0`, `-1`, and `MAX_SINGLE_AMOUNT_STROOPS + 1` are rejected.
+///
 /// # Panics
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
 /// [`EscrowError::InvalidMilestoneAmount`] when the amount exceeds the cap.
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
-    // Invariant: amount must be strictly positive and must not exceed the
-    // single-amount cap. Both bounds are checked to give precise errors.
     if amount <= 0 {
         env.panic_with_error(crate::EscrowError::AmountMustBePositive);
     }
-    if amount > MAX_SINGLE_AMOUNT_STROOPS {
+    if amount > crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS {
         env.panic_with_error(crate::EscrowError::InvalidMilestoneAmount);
     }
 }
@@ -128,7 +153,6 @@ pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
     use soroban_sdk::Env;
 
     fn env() -> Env {
@@ -299,7 +323,7 @@ mod tests {
     #[test]
     fn validate_stroop_amount_accepts_max() {
         let e = env();
-        validate_stroop_amount(&e, MAX_SINGLE_AMOUNT_STROOPS);
+        validate_stroop_amount(&e, crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS);
     }
 
     #[test]
@@ -320,6 +344,6 @@ mod tests {
     #[should_panic]
     fn validate_stroop_amount_rejects_over_max() {
         let e = env();
-        validate_stroop_amount(&e, MAX_SINGLE_AMOUNT_STROOPS + 1);
+        validate_stroop_amount(&e, crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS + 1);
     }
 }
