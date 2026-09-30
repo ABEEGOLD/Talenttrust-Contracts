@@ -59,6 +59,29 @@ pub const MILESTONE_ONE: i128 = 200_0000000;
 pub const MILESTONE_TWO: i128 = 400_0000000;
 pub const MILESTONE_THREE: i128 = 600_0000000;
 
+/// Compatibility contract for the shared test helpers in this module.
+///
+/// The helpers below are consumed by many suites and are treated as a stable
+/// test-only API. The following invariants MUST hold across refactors:
+///
+/// * `MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE == total_milestone_amount()`
+///   and `total_milestones()` is an exact alias of `total_milestone_amount()`.
+/// * `default_milestones(env)` always returns exactly those three amounts, in
+///   order, so `create_default_contract` / `create_contract` /
+///   `complete_contract*` all agree on the funded total.
+/// * `create_default_contract` and `create_contract` use
+///   `ReleaseAuthorization::ClientOnly` and a `None` arbiter; changing either
+///   silently breaks callers that assume client-only release.
+/// * `complete_contract_funded` and `complete_contract` drive a contract to
+///   `ContractStatus::Completed` by releasing every milestone index `0..3`;
+///   callers rely on the returned `(client, freelancer, contract_id)` tuple.
+/// * `assert_contract_error` only accepts the contract-level error variant
+///   (`Err(Ok(soroban_sdk::Error))`); host/VM errors are treated as failures so
+///   validation regressions cannot be masked as expected rejections.
+///
+/// Any change to these helpers must keep existing callers compiling and
+/// behaving identically, or ship a tested migration path in the same PR.
+
 /// A complete, test-only escrow fixture.
 ///
 /// The fixture owns its Soroban [`Env`] and records the generated addresses and

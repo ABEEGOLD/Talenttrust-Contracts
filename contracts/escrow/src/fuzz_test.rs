@@ -43,14 +43,20 @@ use crate::{
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/// Build a fresh, deterministic escrow test environment.
+///
+/// Invariants preserved:
+///   * The returned `Env` is the sole owner of the environment state; no
+///     aliasing or `unsafe` pointer reads are performed.
+///   * Auth mocking is enabled exactly once per environment.
+///   * The registered contract id is stable for the lifetime of the returned
+///     `EscrowClient`.
 fn setup() -> (Env, EscrowClient<'static>) {
-    // SAFETY: EscrowClient borrows Env; we box Env so the address is stable for
-    // the lifetime of the test case.
-    let env = Box::leak(Box::new(Env::default()));
+    let env = Env::default();
     env.mock_all_auths();
     let id = env.register(Escrow, ());
-    let client = EscrowClient::new(env, &id);
-    (unsafe { std::ptr::read(env as *const Env) }, client)
+    let client = EscrowClient::new(&env, &id);
+    (env, client)
 }
 
 /// Build a SorobanVec from a std Vec of i128.
