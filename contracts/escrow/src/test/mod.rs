@@ -46,6 +46,7 @@ mod test_pause_scope;
 // mod settlement_overflow;
 mod event_assertions;
 mod lifecycle_invariants;
+mod fuzz_test;
 mod governance_proposal;
 mod simulate_create_contract;
 mod simulate_deposit;
