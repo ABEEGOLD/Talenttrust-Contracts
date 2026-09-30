@@ -15,7 +15,7 @@ impl Escrow {
     /// - At least one milestone with all amounts strictly positive
     /// - The `MAX_MILESTONES` cap
     /// - The governed total-escrow cap (falls back to `i128::MAX` when unset)
-    /// - No contract-id collision or overflow
+    /// - No contract or milestone-storage collision, and no contract-id overflow
     ///
     /// # Arguments
     /// * `env` - The contract environment
@@ -116,6 +116,9 @@ impl Escrow {
         ttl::extend_next_contract_id_ttl(&env);
 
         let id = next_contract_id(&env);
+        let next_id = id
+            .checked_add(1)
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
 
         let freelancer_addr = freelancer.clone();
 
@@ -155,11 +158,7 @@ impl Escrow {
             .persistent()
             .set(&(DataKey::Contract(id), milestone_key), &milestone_vec);
 
-        // Advance the counter. `next_contract_id` already checked `id < u32::MAX`;
-        // the `checked_add` here is a defense-in-depth guard.
-        let next_id = id
-            .checked_add(1)
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
+        // Advance the counter only after both records have been persisted.
         env.storage()
             .persistent()
             .set(&DataKey::NextContractId, &next_id);
@@ -174,10 +173,10 @@ impl Escrow {
     }
 }
 
-/// Returns the next available contract ID and asserts it is not already occupied.
+/// Returns the next ID only when its contract and milestone storage keys are free.
 ///
 /// # Errors
-/// * `ContractIdCollision` - If the allocated id slot is already occupied
+/// * `ContractIdCollision` - If either key for the allocated ID is occupied
 pub(crate) fn next_contract_id(env: &Env) -> u32 {
     let id: u32 = env
         .storage()
@@ -185,12 +184,10 @@ pub(crate) fn next_contract_id(env: &Env) -> u32 {
         .get(&DataKey::NextContractId)
         .unwrap_or(1);
 
-    if env
-        .storage()
-        .persistent()
-        .get::<_, Contract>(&DataKey::Contract(id))
-        .is_some()
-    {
+    let storage = env.storage().persistent();
+    let contract_key = DataKey::Contract(id);
+    let milestone_key = ttl::milestone_storage_key(env, id);
+    if storage.has(&contract_key) || storage.has(&milestone_key) {
         env.panic_with_error(Error::ContractIdCollision);
     }
 
