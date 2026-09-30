@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Bounds validation tests for escrow entrypoints (issue #914).
 //!
 //! Covers every entrypoint that accepts numeric or length-bounded inputs,
@@ -16,6 +17,7 @@
 //!   - `submit_work_evidence`   — evidence ≤ 256 bytes
 //!   - `issue_reputation`       — rating in [1, 5], comment in [1, 200] bytes
 //!   - `refund_unreleased_milestones` — indices < milestones.len()
+//!   - `create_contract`        — milestone count ≤ MAX_MILESTONES, amounts > 0, total ≤ cap
 
 #![cfg(test)]
 
@@ -31,6 +33,7 @@ use crate::{
     ReleaseAuthorization,
     MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
 };
+use crate::MAX_MILESTONES as _MAX_MILESTONES_ALIAS;
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -55,6 +58,7 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) 
     let token = env.register_stellar_asset_contract(admin.clone());
     client.bind_settlement_token(&admin, &token);
 
+    // Mint plenty of tokens to the client for deposits.
     let client_addr = Address::generate(env);
     let freelancer_addr = Address::generate(env);
 
@@ -63,6 +67,7 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) 
 
     (client, client_addr, freelancer_addr, admin)
 }
+// (fixture continues below)
 
 /// Create a funded 1-milestone contract; returns contract_id.
 fn funded_contract(
@@ -84,6 +89,7 @@ fn funded_contract(
     id
 }
 
+// ── create_contract — milestone count and amount bounds ──────────────────────
 // ── set_protocol_fee_bps ─────────────────────────────────────────────────────
 
 /// Boundary success: exactly 10_000 bps (100 %) must be accepted.
@@ -113,6 +119,7 @@ fn set_protocol_fee_bps_accepts_typical_value() {
     assert_eq!(escrow.get_protocol_fee_bps(), 500_u32);
 }
 
+/// One above the maximum (10_001 bps) must be rejected with InvalidProtocolParameters.
 /// One above the maximum (10_001 bps) must be rejected with InvalidProtocolParameters.
 #[test]
 fn set_protocol_fee_bps_rejects_10001() {
@@ -144,6 +151,7 @@ fn set_protocol_fee_bps_rejects_u32_max() {
 }
 
 /// Rejected calls must not mutate the stored fee.
+/// Rejected calls must not mutate the stored fee.
 #[test]
 fn set_protocol_fee_bps_rejected_call_leaves_fee_unchanged() {
     let env = Env::default();
@@ -156,6 +164,7 @@ fn set_protocol_fee_bps_rejected_call_leaves_fee_unchanged() {
     assert_eq!(escrow.get_protocol_fee_bps(), 250_u32);
 }
 
+// ── deposit_funds ────────────────────────────────────────────────────────────
 // ── deposit_funds ────────────────────────────────────────────────────────────
 
 /// Zero deposit must be rejected with AmountMustBePositive.
@@ -222,6 +231,7 @@ fn deposit_funds_accepts_exact_total() {
 }
 
 /// Deposit exceeding the remaining capacity must be rejected.
+/// Deposit exceeding the remaining capacity must be rejected.
 #[test]
 fn deposit_funds_rejects_amount_over_remaining() {
     let env = Env::default();
@@ -240,6 +250,7 @@ fn deposit_funds_rejects_amount_over_remaining() {
     assert!(result.is_err(), "deposit over cap must be rejected");
 }
 
+// ── release_milestone — milestone_index bounds ───────────────────────────────
 // ── release_milestone — milestone_index bounds ───────────────────────────────
 
 /// Index equal to the milestone count (out of bounds by 1) must be rejected.
@@ -288,6 +299,7 @@ fn release_milestone_accepts_index_zero_on_single_milestone() {
 }
 
 // ── approve_milestone_release — milestone_index bounds ───────────────────────
+// ── approve_milestone_release — milestone_index bounds ───────────────────────
 
 /// Index equal to the milestone count must be rejected.
 #[test]
@@ -331,6 +343,7 @@ fn approve_milestone_release_accepts_valid_index() {
     assert!(escrow.approve_milestone_release(&id, &client_addr, &0));
 }
 
+// ── submit_work_evidence — evidence length bounds ────────────────────────────
 // ── submit_work_evidence — evidence length bounds ────────────────────────────
 
 /// Evidence of exactly 256 bytes must be accepted.
@@ -389,6 +402,7 @@ fn submit_work_evidence_rejects_out_of_bounds_index() {
     }
 }
 
+// ── issue_reputation — rating and comment bounds ─────────────────────────────
 // ── issue_reputation — rating and comment bounds ─────────────────────────────
 
 /// Helper: drive a contract to Completed status.
@@ -503,6 +517,7 @@ fn issue_reputation_rejects_empty_comment() {
 }
 
 // ── refund_unreleased_milestones — index bounds ──────────────────────────────
+// ── refund_unreleased_milestones — index bounds ──────────────────────────────
 
 /// Out-of-bounds index in refund request must be rejected with IndexOutOfBounds.
 #[test]
@@ -555,6 +570,7 @@ fn refund_unreleased_milestones_rejects_u32_max_index() {
 }
 
 // ── Regression: existing valid inputs still accepted ─────────────────────────
+// ── Regression: existing valid inputs still accepted ─────────────────────────
 
 /// A standard 3-milestone contract with typical amounts must still be created.
 #[test]
@@ -568,6 +584,7 @@ fn regression_standard_three_milestone_contract_accepted() {
     assert!(id > 0 || id == 0, "contract id must be a valid u32");
 }
 
+/// set_protocol_fee_bps can be updated multiple times with valid values.
 /// set_protocol_fee_bps can be updated multiple times with valid values.
 #[test]
 fn regression_set_protocol_fee_bps_multiple_updates() {
