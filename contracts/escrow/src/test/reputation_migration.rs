@@ -16,12 +16,18 @@
 //! | version marker is written with correct value after migration | [`version_marker_written_correctly`] |
 //! | reputation issued after migration is still readable | [`issue_reputation_after_migration_readable`] |
 //! | public entrypoint on unknown address does not panic | [`public_entrypoint_unknown_address_does_not_panic`] |
+//! | v1 readable via all query paths, reads side-effect free | [`compat_v1_readable_via_all_query_paths`] |
+//! | mixed v1+v2 pagination | [`compat_mixed_v1_v2_pagination`] |
+//! | future marker is a no-op | [`compat_future_marker_is_noop`] |
+//! | corrupted zero marker heals to v2 | [`compat_corrupted_zero_marker_heals`] |
+//! | zero-contract boundary | [`compat_zero_contracts_boundary`] |
+//! | idempotency matrix (v1/v2/absent) | [`compat_idempotency_matrix`] |
 
 use crate::{
     reputation_migration::{migrate_reputation_storage_impl, read_reputation_version},
     DataKey, Reputation, REPUTATION_STORAGE_VERSION,
 };
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 use super::register_client;
 
@@ -58,6 +64,31 @@ fn read_reputation_direct(
             .persistent()
             .get(&DataKey::Reputation(address.clone()))
     })
+}
+
+/// Write a version marker directly (for future/corrupted-marker tests).
+fn write_version_direct(env: &Env, escrow_addr: &Address, address: &Address, version: u32) {
+    env.as_contract(escrow_addr, || {
+        env.storage().persistent().set(
+            &DataKey::ReputationStorageVersion(address.clone()),
+            &version,
+        );
+    });
+}
+
+/// Append an address to the reputation index (simulates legacy index state).
+fn push_to_index(env: &Env, escrow_addr: &Address, address: &Address) {
+    env.as_contract(escrow_addr, || {
+        let mut idx: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReputationIndex)
+            .unwrap_or_else(|| Vec::new(env));
+        idx.push_back(address.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReputationIndex, &idx);
+    });
 }
 
 fn valid_comment(env: &Env) -> String {
@@ -507,4 +538,205 @@ fn public_entrypoint_unknown_address_does_not_panic() {
         !result,
         "absent record must return false from public entrypoint"
     );
+}
+
+// ── Compatibility contracts ──────────────────────────────────────────────────
+
+/// Legacy v1 records stay readable through every query path with identical
+/// results, and reads never write markers (strict read-only).
+#[test]
+fn compat_v1_readable_via_all_query_paths() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    let original = Reputation {
+        completed_contracts: 5,
+        total_rating: 22,
+        last_rating: 4,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &original);
+    push_to_index(&env, &escrow_addr, &freelancer);
+
+    // get_reputation returns v1 as-is.
+    let rep = escrow_client.get_reputation(&freelancer).expect("v1 must read");
+    assert_eq!(rep.completed_contracts, 5);
+    assert_eq!(rep.total_rating, 22);
+    assert_eq!(rep.last_rating, 4);
+
+    // get_average_rating works on v1: 22 * 10_000 / 5 = 44_000.
+    assert_eq!(escrow_client.get_average_rating(&freelancer), Some(44_000));
+
+    // get_reputations_page includes the v1 entry.
+    let page = escrow_client.get_reputations_page(&0, &10);
+    assert_eq!(page.len(), 1);
+    assert_eq!(page.get(0).unwrap().completed_contracts, 5);
+
+    // Reads are side-effect free: still no marker.
+    assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), None);
+}
+
+/// Mixed v1 + v2 records paginate identically regardless of version.
+#[test]
+fn compat_mixed_v1_v2_pagination() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let v1_addr = Address::generate(&env);
+    let v2_addr = Address::generate(&env);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &v1_addr,
+        &Reputation {
+            completed_contracts: 2,
+            total_rating: 8,
+            last_rating: 4,
+        },
+    );
+    push_to_index(&env, &escrow_addr, &v1_addr);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &v2_addr,
+        &Reputation {
+            completed_contracts: 3,
+            total_rating: 15,
+            last_rating: 5,
+        },
+    );
+    push_to_index(&env, &escrow_addr, &v2_addr);
+    assert!(escrow_client.migrate_reputation_storage(&v2_addr));
+
+    let page = escrow_client.get_reputations_page(&0, &10);
+    assert_eq!(page.len(), 2);
+    // Both versions read identically; marker state differs only.
+    assert_eq!(read_version_direct(&env, &escrow_addr, &v1_addr), None);
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &v2_addr),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+}
+
+/// Future markers (> CURRENT) are forward-compatible no-ops: no panic, no
+/// downgrade, data intact, reads still work.
+#[test]
+fn compat_future_marker_is_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    let original = Reputation {
+        completed_contracts: 4,
+        total_rating: 18,
+        last_rating: 5,
+    };
+    write_v1_reputation(&env, &escrow_addr, &freelancer, &original);
+    write_version_direct(&env, &escrow_addr, &freelancer, 99);
+
+    let migrated = env.as_contract(&escrow_addr, || {
+        migrate_reputation_storage_impl(&env, &freelancer)
+    });
+    assert!(!migrated, "future version must be a no-op");
+    assert!(!escrow_client.migrate_reputation_storage(&freelancer));
+
+    // Data intact, marker untouched (no downgrade to v2).
+    let after = read_reputation_direct(&env, &escrow_addr, &freelancer).unwrap();
+    assert_eq!(after.completed_contracts, 4);
+    assert_eq!(after.total_rating, 18);
+    assert_eq!(read_version_direct(&env, &escrow_addr, &freelancer), Some(99));
+
+    // Reads still serve the record.
+    assert!(escrow_client.get_reputation(&freelancer).is_some());
+}
+
+/// Corrupted `0` marker heals forward to v2 when a record exists.
+#[test]
+fn compat_corrupted_zero_marker_heals() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &freelancer,
+        &Reputation {
+            completed_contracts: 1,
+            total_rating: 5,
+            last_rating: 5,
+        },
+    );
+    write_version_direct(&env, &escrow_addr, &freelancer, 0);
+
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+    let after = read_reputation_direct(&env, &escrow_addr, &freelancer).unwrap();
+    assert_eq!(after.completed_contracts, 1);
+    assert_eq!(
+        read_version_direct(&env, &escrow_addr, &freelancer),
+        Some(REPUTATION_STORAGE_VERSION)
+    );
+}
+
+/// Zero-contract boundary never traps: average is `None`, migration still works.
+#[test]
+fn compat_zero_contracts_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let freelancer = Address::generate(&env);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &freelancer,
+        &Reputation {
+            completed_contracts: 0,
+            total_rating: 0,
+            last_rating: 0,
+        },
+    );
+
+    assert_eq!(escrow_client.get_average_rating(&freelancer), None);
+    assert!(escrow_client.migrate_reputation_storage(&freelancer));
+    assert_eq!(escrow_client.get_average_rating(&freelancer), None);
+}
+
+/// Idempotency matrix via the public entrypoint: v1→true-then-false,
+/// v2→false, absent→false with zero writes.
+#[test]
+fn compat_idempotency_matrix() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let escrow_client = register_client(&env);
+    let escrow_addr = escrow_client.address.clone();
+    let v1_addr = Address::generate(&env);
+    let absent = Address::generate(&env);
+
+    write_v1_reputation(
+        &env,
+        &escrow_addr,
+        &v1_addr,
+        &Reputation {
+            completed_contracts: 1,
+            total_rating: 4,
+            last_rating: 4,
+        },
+    );
+
+    assert!(escrow_client.migrate_reputation_storage(&v1_addr));
+    assert!(!escrow_client.migrate_reputation_storage(&v1_addr));
+
+    assert!(!escrow_client.migrate_reputation_storage(&absent));
+    assert_eq!(read_version_direct(&env, &escrow_addr, &absent), None);
 }
