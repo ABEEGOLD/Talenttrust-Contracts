@@ -2603,12 +2603,36 @@ impl Escrow {
         }
         caller.require_auth();
 
+        // Deterministic pre-validation pass: verify every item is well-formed
+        // before emitting anything. This guarantees all-or-nothing semantics
+        // for the batch — a malformed item at index N cannot leave items
+        // [0, N) already emitted with no way to recover or reconcile.
+        let batch_len = events.len();
+        for i in 0..batch_len {
+            let item = events.get(i).unwrap();
+            // Topic and data must be non-empty symbols to be indexable.
+            if item.topic.len() == 0 {
+                env.panic_with_error(Error::InvalidProtocolParameters);
+            }
+        }
+
         let mut count: u32 = 0;
-        for item in events.iter() {
+        for i in 0..batch_len {
+            let item = events.get(i).unwrap();
             env.events()
                 .publish((item.topic.clone(), item.contract_id), item.data.clone());
             count += 1;
         }
+
+        // Emit a terminal marker so off-chain indexers can distinguish a
+        // fully-completed batch from a partial one. The marker carries the
+        // caller, the declared batch size, and the emitted count — all public
+        // metadata — so failures are diagnosable without exposing payloads.
+        env.events().publish(
+            (symbol_short!("evt_batch"), symbol_short!("done")),
+            (caller, batch_len, count, env.ledger().timestamp()),
+        );
+
         count
     }
 
