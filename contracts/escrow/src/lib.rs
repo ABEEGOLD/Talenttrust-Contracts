@@ -56,6 +56,7 @@ mod approvals;
 mod deposit;
 mod finalize;
 mod migration;
+mod refund_impl;
 mod ttl;
 mod types;
 mod utils;
@@ -1127,19 +1128,7 @@ impl Escrow {
         milestone_indices: Vec<u32>,
     ) -> i128 {
         Self::require_not_paused(&env);
-        // Validate non-empty request
-        if milestone_indices.is_empty() {
-            env.panic_with_error(EscrowError::EmptyRefundRequest);
-        }
-
-        // Check for duplicates
-        for i in 0..milestone_indices.len() {
-            for j in (i + 1)..milestone_indices.len() {
-                if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
-                    env.panic_with_error(EscrowError::DuplicateMilestoneInRefund);
-                }
-            }
-        }
+        refund_impl::validate_refund_request(&env, &milestone_indices);
 
         let mut contract: Contract = env
             .storage()
@@ -1166,52 +1155,27 @@ impl Escrow {
 
         let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
 
-        let mut total_refund_amount: i128 = 0;
+        // Validate every requested index and amount before any transfer or state mutation.
+        let total_refund_amount =
+            refund_impl::validate_and_calculate_refund(&env, &milestones, &milestone_indices);
 
-        // Validate all milestones first
+        // Deadline checks remain part of the public entrypoint's compatibility contract.
         for idx in milestone_indices.iter() {
-            if idx >= milestones.len() {
-                env.panic_with_error(Error::IndexOutOfBounds);
-            }
-
             let milestone = milestones.get(idx).unwrap();
-
-            // SECURITY: Check if milestone is already released
-            if milestone.released {
-                env.panic_with_error(Error::AlreadyReleased);
+            if milestone.deadline.is_some()
+                && !Self::is_milestone_overdue(env.clone(), contract_id, idx)
+            {
+                env.panic_with_error(Error::MilestoneNotOverdue);
             }
-
-            // SECURITY: Check if milestone is already refunded
-            if milestone.refunded {
-                env.panic_with_error(EscrowError::AlreadyRefunded);
-            }
-
-            // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if let Some(deadline) = milestone.deadline {
-                // Milestone has a deadline - check if it's overdue
-                if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
-                    // Deadline set but milestone not yet overdue
-                    env.panic_with_error(Error::MilestoneNotOverdue);
-                }
-                // SECURITY: is_milestone_overdue already verified: now > deadline AND unreleased
-            }
-            // If no deadline (None), allow refund anytime (backward compatibility)
-
-            total_refund_amount = total_refund_amount
-                .checked_add(milestone.amount)
-                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         }
 
-        // Check if there's enough balance
-        let available_balance = crate::checked_available_balance(
+        refund_impl::validate_refundable_balance(
+            &env,
             contract.funded_amount,
             contract.released_amount,
             contract.refunded_amount,
-        )
-        .unwrap_or_else(|e| env.panic_with_error(e));
-        if available_balance < total_refund_amount {
-            env.panic_with_error(EscrowError::InsufficientFunds);
-        }
+            total_refund_amount,
+        );
 
         // Transfer tokens from contract to client
         let token = Self::read_settlement_token(&env)
@@ -1235,7 +1199,7 @@ impl Escrow {
         contract.refunded_amount = contract
             .refunded_amount
             .checked_add(total_refund_amount)
-            .unwrap_or_else(|| env.panic_with_error(Error::InsufficientFunds));
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
 
         // Check if all unreleased milestones are refunded
         let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
