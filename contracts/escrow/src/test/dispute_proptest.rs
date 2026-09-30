@@ -255,9 +255,10 @@ proptest! {
     /// value types at strategy-construction time without this lift.
     #[test]
     fn prop_split_accepts_exact_conservation(
-        (funded, client_amount) in (0i128..=MAX_LARGE)
-            .prop_flat_map(|funded| (Just(funded), 0i128..=funded)),
+        funded in 0i128..=MAX_LARGE,
+        client_amount in 0i128..=MAX_LARGE,
     ) {
+        prop_assume!(client_amount <= funded);
         let env = Env::default();
         let contract = payout_contract(&env, funded, 0, 0);
         let freelancer_amount = funded - client_amount;
@@ -285,10 +286,9 @@ proptest! {
     /// `prop_split_accepts_exact_conservation` for rationale.
     #[test]
     fn prop_split_rejects_invalid_inputs(
-        (funded, client_in, freelancer_in) in (1i128..=MAX_LARGE).prop_flat_map(|funded| {
-            let upper = funded.saturating_add(10);
-            (Just(funded), -2i128..=upper, -2i128..=upper)
-        }),
+        funded in 1i128..=MAX_LARGE,
+        client_in in -2i128..=MAX_LARGE,
+        freelancer_in in -2i128..=MAX_LARGE,
     ) {
         let env = Env::default();
         let contract = payout_contract(&env, funded, 0, 0);
