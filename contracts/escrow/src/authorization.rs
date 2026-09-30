@@ -1,4 +1,5 @@
 //! Shared authorization helpers for role validation and release-mode checking.
+//! Shared authorization helpers for role validation and release-mode checking.
 //!
 //! This module centralizes repeated authorization logic across the contract,
 //! providing reusable helpers for:
@@ -14,6 +15,7 @@ use crate::types::{Contract, Error, ReleaseAuthorization};
 use soroban_sdk::{Address, Env};
 
 /// Represents the role of a caller in a contract context.
+/// Represents the role of a caller in a contract context.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParticipantRole {
     /// The client who requested the work.
@@ -24,6 +26,7 @@ pub enum ParticipantRole {
     Arbiter,
 }
 
+/// Determines the role of a caller with respect to a contract.
 /// Determines the role of a caller with respect to a contract.
 ///
 /// # Arguments
@@ -77,6 +80,7 @@ pub fn get_caller_role(caller: &Address, contract: &Contract) -> Option<Particip
 pub fn require_release_authorization(env: &Env, caller: &Address, contract: &Contract) {
     let role = get_caller_role(caller, contract);
 
+    // Caller must be a participant; otherwise reject immediately.
     if let Some(role) = role {
         // Caller is a participant; now check release mode
         match contract.release_authorization {
@@ -108,6 +112,7 @@ pub fn require_release_authorization(env: &Env, caller: &Address, contract: &Con
 }
 
 /// Checks if a caller is a valid participant in a contract.
+/// Checks if a caller is a valid participant in a contract.
 ///
 /// A valid participant is one of: client, freelancer, or assigned arbiter.
 /// This is useful for entrypoints that allow any participant to take action
@@ -130,6 +135,7 @@ pub fn require_participant(env: &Env, caller: &Address, contract: &Contract) -> 
 }
 
 /// Checks if a caller is authorized as an admin.
+/// Checks if a caller is authorized as an admin.
 ///
 /// The admin is stored under `DataKey::Admin` and is typically set during
 /// initialization or via a two-step admin rotation flow.
@@ -147,6 +153,7 @@ pub fn require_admin(env: &Env, caller: &Address, stored_admin: &Address) {
     }
 }
 
+/// Tests for authorization helpers.
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -154,6 +161,7 @@ mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
 
+    /// Helper to create a test contract with given participants and release mode
     /// Helper to create a test contract with given participants and release mode
     fn make_test_contract(
         env: &Env,
@@ -176,6 +184,7 @@ mod tests {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
     // ─────────────────────────────────────────────────────────────────────────
     // get_caller_role tests
     // ─────────────────────────────────────────────────────────────────────────
@@ -200,6 +209,7 @@ mod tests {
         );
     }
 
+    #[test]
     #[test]
     fn test_get_caller_role_identifies_freelancer() {
         let env = Env::default();
@@ -242,6 +252,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_get_caller_role_returns_none_for_non_participant() {
         let env = Env::default();
         let client = Address::generate(&env);
@@ -278,6 +289,7 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // require_release_authorization tests
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -300,6 +312,7 @@ mod tests {
         require_release_authorization(&env, &client, &contract);
     }
 
+    #[test]
     #[test]
     fn test_require_release_authorization_client_only_denies_freelancer() {
         let env = Env::default();
@@ -325,6 +338,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_require_release_authorization_arbiter_only_allows_arbiter() {
         let env = Env::default();
         env.mock_all_auths();
@@ -344,6 +358,7 @@ mod tests {
         require_release_authorization(&env, &arbiter, &contract);
     }
 
+    #[test]
     #[test]
     fn test_require_release_authorization_arbiter_only_denies_client() {
         let env = Env::default();
@@ -370,6 +385,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_require_release_authorization_client_and_arbiter_allows_both() {
         let env = Env::default();
         env.mock_all_auths();
@@ -390,6 +406,7 @@ mod tests {
         require_release_authorization(&env, &arbiter, &contract);
     }
 
+    #[test]
     #[test]
     fn test_require_release_authorization_client_and_arbiter_denies_freelancer() {
         let env = Env::default();
@@ -416,6 +433,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_require_release_authorization_multisig_allows_both() {
         let env = Env::default();
         env.mock_all_auths();
@@ -435,6 +453,7 @@ mod tests {
         require_release_authorization(&env, &freelancer, &contract);
     }
 
+    #[test]
     #[test]
     fn test_require_release_authorization_multisig_denies_non_participant() {
         let env = Env::default();
@@ -458,6 +477,7 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // require_participant tests
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -480,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_require_participant_accepts_freelancer() {
         let env = Env::default();
         let client = Address::generate(&env);
@@ -497,6 +518,7 @@ mod tests {
         assert_eq!(role, ParticipantRole::Freelancer);
     }
 
+    #[test]
     #[test]
     fn test_require_participant_accepts_arbiter() {
         let env = Env::default();
@@ -516,6 +538,7 @@ mod tests {
         assert_eq!(role, ParticipantRole::Arbiter);
     }
 
+    #[test]
     #[test]
     fn test_require_participant_rejects_non_participant() {
         let env = Env::default();
@@ -538,6 +561,7 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // require_admin tests
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -552,6 +576,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_require_admin_rejects_wrong_admin() {
         let env = Env::default();
         let admin = Address::generate(&env);
@@ -563,6 +588,7 @@ mod tests {
         assert!(result.is_err(), "Wrong admin should be rejected");
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
     // ─────────────────────────────────────────────────────────────────────────
     // Edge cases and boundary conditions
     // ─────────────────────────────────────────────────────────────────────────
@@ -588,6 +614,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_arbiter_none_means_no_arbiter_role() {
         let env = Env::default();
         let client = Address::generate(&env);
@@ -606,6 +633,7 @@ mod tests {
         assert!(matches!(get_caller_role(&random_addr, &contract), None));
     }
 
+    #[test]
     #[test]
     fn test_all_release_modes_respect_non_participants() {
         let env = Env::default();
