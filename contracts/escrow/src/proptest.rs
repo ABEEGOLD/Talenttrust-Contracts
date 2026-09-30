@@ -1,4 +1,5 @@
-//! Property-based tests for the escrow accounting and state invariants.
+#![cfg(test)]
+//! Property-based tests for the escrow accounting invariant.
 //!
 //! Drives random sequences of `deposit_funds`, `approve_milestone_release`,
 //! `release_milestone`, and `refund_unreleased_milestones` against the live
@@ -9,11 +10,6 @@
 //! Also asserts that:
 //! - `funded_amount` is never exceeded by `released + refunded`
 //! - Status transitions are monotone and eventually reach a terminal state
-//! - Terminal states (Completed, Refunded, Cancelled) are absorbing: no
-//!   operation may change the status once a terminal state is reached.
-//! - `released_amount` and `refunded_amount` are monotone non-decreasing.
-//! - `funded_amount` is monotone non-decreasing and never exceeds the
-//!   contract's declared total milestone sum.
 //!
 //! ## Running
 //!
@@ -29,8 +25,6 @@
 //! ```
 //!
 //! Failing seeds are auto-saved to `proptest-regressions/proptest.txt`.
-
-#![cfg(test)]
 
 extern crate std;
 
@@ -204,6 +198,10 @@ fn assert_invariant(client: &EscrowClient, id: u32) {
 /// Returns `true` if `next` is a valid monotonic transition from `prev`.
 /// Terminal states (Completed, Refunded, Cancelled) should never be left.
 fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
+    // Invariant: terminal states are absorbing; forward transitions are
+    // monotone. This helper is used by `prop_status_transitions_monotone`
+    // to assert that no operation can move the contract backwards or out
+    // of a terminal state.
     use ContractStatus::*;
     match (prev, next) {
         // Terminal states are absorbing.
@@ -219,12 +217,17 @@ fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
         | (Funded, Completed)
         | (Funded, Refunded)
         | (Funded, Cancelled) => true,
+        // PartiallyFunded and Accepted are transient states that may
+        // progress to Funded or be cancelled; they must never regress
+        // to Created or jump directly to Completed/Refunded.
         (PartiallyFunded, PartiallyFunded)
         | (PartiallyFunded, Funded)
         | (PartiallyFunded, Cancelled) => true,
         (Accepted, Accepted)
         | (Accepted, Funded)
         | (Accepted, Cancelled) => true,
+        // Any state may transition into Disputed; Disputed itself is
+        // handled by the catch-all below unless explicitly allowed.
         (_, Disputed) => true,
         // Everything else is invalid.
         _ => false,

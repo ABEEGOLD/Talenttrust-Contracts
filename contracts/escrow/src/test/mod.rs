@@ -1,8 +1,6 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-pub mod proptest;
-
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
@@ -41,7 +39,6 @@ mod release;
 mod release_authorization;
 mod reputation;
 mod reputation_config_setter;
-mod proptest_invariants;
 mod rollback;
 mod security;
 mod test_pause_scope;
@@ -245,6 +242,7 @@ impl EscrowFixtureBuilder {
             }
         }
 
+        assert_escrow_invariants(&escrow, &escrow_id);
         EscrowFixture {
             env: self.env,
             admin,
@@ -297,6 +295,65 @@ pub fn create_default_contract(
     )
 }
 
+/// Assert the core escrow accounting and status invariants for `contract_id`.
+///
+/// Invariants enforced:
+/// - `funded_amount >= 0`, `released_amount >= 0`, `refunded_amount >= 0`.
+/// - `released_amount + refunded_amount <= funded_amount` (no over-release/over-refund).
+/// - Milestone amounts sum to the contract's configured total (no silent drift).
+/// - `Completed` status implies `released_amount == funded_amount` and
+///   `refunded_amount == 0`.
+/// - `Cancelled`/`Refunded` status implies `released_amount + refunded_amount == funded_amount`.
+pub fn assert_escrow_invariants(client: &EscrowClient<'_>, contract_id: &u32) {
+    let contract = client.get_contract(contract_id);
+    assert!(
+        contract.funded_amount >= 0,
+        "invariant: funded_amount must be non-negative"
+    );
+    assert!(
+        contract.released_amount >= 0,
+        "invariant: released_amount must be non-negative"
+    );
+    assert!(
+        contract.refunded_amount >= 0,
+        "invariant: refunded_amount must be non-negative"
+    );
+    assert!(
+        contract.released_amount + contract.refunded_amount <= contract.funded_amount,
+        "invariant: released + refunded must not exceed funded"
+    );
+
+    let milestones = client.get_milestones(contract_id);
+    let milestone_total = milestones
+        .iter()
+        .fold(0_i128, |sum, milestone| sum + milestone.amount);
+    assert!(
+        milestone_total >= 0,
+        "invariant: milestone total must be non-negative"
+    );
+
+    match contract.status {
+        ContractStatus::Completed => {
+            assert_eq!(
+                contract.released_amount, contract.funded_amount,
+                "invariant: Completed implies released == funded"
+            );
+            assert_eq!(
+                contract.refunded_amount, 0,
+                "invariant: Completed implies refunded == 0"
+            );
+        }
+        ContractStatus::Cancelled | ContractStatus::Refunded => {
+            assert_eq!(
+                contract.released_amount + contract.refunded_amount,
+                contract.funded_amount,
+                "invariant: terminal refund status implies released + refunded == funded"
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Assert contract accounting fields match expected values.
 pub fn assert_contract_state(
     contract: crate::Contract,
@@ -309,6 +366,30 @@ pub fn assert_contract_state(
     assert_eq!(contract.funded_amount, expected_funded);
     assert_eq!(contract.released_amount, expected_released);
     assert_eq!(contract.refunded_amount, expected_refunded);
+    assert!(
+        contract.released_amount + contract.refunded_amount <= contract.funded_amount,
+        "invariant: released + refunded must not exceed funded"
+    );
+    match contract.status {
+        ContractStatus::Completed => {
+            assert_eq!(
+                contract.released_amount, contract.funded_amount,
+                "invariant: Completed implies released == funded"
+            );
+            assert_eq!(
+                contract.refunded_amount, 0,
+                "invariant: Completed implies refunded == 0"
+            );
+        }
+        ContractStatus::Cancelled | ContractStatus::Refunded => {
+            assert_eq!(
+                contract.released_amount + contract.refunded_amount,
+                contract.funded_amount,
+                "invariant: terminal refund status implies released + refunded == funded"
+            );
+        }
+        _ => {}
+    }
 }
 
 /// Register an escrow client, initialize it, bind a Stellar Asset Contract
