@@ -47,7 +47,7 @@ pub fn validate_single_amount(amount: i128) -> Result<(), crate::EscrowError> {
     // In Stellar, stroop is the smallest unit, so any integer is valid
     // This check is more for documentation and future-proofing
 
-    Ok(()
+    Ok(())
 }
 
 /// Validates an amount array/vector for positivity and bounds
@@ -91,7 +91,7 @@ pub fn validate_contract_total(
         // Map to InvalidMilestoneAmount for contract total overflow
         return Err(crate::EscrowError::InvalidMilestoneAmount);
     }
-    Ok(()
+    Ok(())
 }
 
 /// Comprehensive validation for milestone amounts
@@ -161,7 +161,7 @@ pub fn validate_deposit_amount(
         return Err(crate::EscrowError::PotentialOverflow);
     }
 
-    Ok(()
+    Ok(())
 }
 
 /// Utility function to safely add amounts with overflow protection
