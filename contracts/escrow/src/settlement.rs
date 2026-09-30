@@ -1,17 +1,41 @@
 //! Typed storage keys and read/write helpers for settlement entries.
 //!
-//! This module replaces ad-hoc key construction for settlement-related
-//! persistent storage with a single, auditable layer. Every settlement
-//! read or write in the contract goes through the helpers defined here,
-//! guaranteeing that the correct `DataKey` variant and storage bucket
-//! (persistent vs. temporary) are always used.
+//! This module is the **single authoritative layer** for every settlement-related
+//! persistent storage read or write in the contract.  Callers must never access
+//! settlement storage keys directly; all paths must go through the helpers
+//! defined here so that the correct [`DataKey`] variant and storage bucket
+//! (always `persistent()`) are consistently used.
 //!
 //! # Storage keys
 //!
-//! | Entry | `DataKey` variant | Bucket |
-//! | --- | --- | --- |
-//! | Settlement token address | `SettlementToken` | `persistent()` |
-//! | Finalization record | `Finalization(contract_id)` | `persistent()` |
+//! | Entry | `DataKey` variant | Bucket | Mutability |
+//! | --- | --- | --- | --- |
+//! | Settlement token address | `SettlementToken` | `persistent()` | **Write-once** |
+//! | Finalization record | `Finalization(contract_id)` | `persistent()` | **Write-once** |
+//!
+//! # Compatibility contract
+//!
+//! The following invariants are part of the public interface.  Callers, tests,
+//! and downstream tooling may rely on them.  Breaking any of these invariants
+//! constitutes a compatibility regression and requires a migration plan:
+//!
+//! 1. **Round-trip guarantee.** Every `write_*` followed by the corresponding
+//!    `read_*` in the same transaction returns the exact same value.
+//! 2. **Absence is `None`, not a panic.** Every `read_*` returns an `Option`;
+//!    an absent key always returns `None` and never panics or errors.
+//! 3. **Write-once token binding via [`write_settlement_token_once`].** Callers
+//!    that must enforce single-write semantics (i.e., all production paths)
+//!    should call this guard helper, not the raw [`write_settlement_token`].
+//! 4. **Finalization is immutable after the first write.** Call
+//!    [`require_not_finalized`] before every [`write_finalization`]; a second
+//!    write to the same `contract_id` is rejected with `AlreadyFinalized`.
+//! 5. **Boundary `contract_id` values are handled deterministically.**
+//!    `0` and `u32::MAX` produce distinct, non-colliding keys at the storage
+//!    layer.  Business-rule rejection (e.g., rejecting `contract_id == 0`) is
+//!    the caller's responsibility and happens in upper-layer entrypoints before
+//!    these helpers are reached.
+//! 6. **This module never emits events and never checks authorization.**  Those
+//!    responsibilities belong to the entrypoints in `lib.rs` and `finalize.rs`.
 //!
 //! # Round-trip guarantee
 //!
@@ -28,6 +52,13 @@ use soroban_sdk::{Address, Env};
 ///
 /// Returns `None` when no token has been bound yet (`bind_settlement_token`
 /// has not been called).
+///
+/// # Invariants
+///
+/// * Returns `None` before the first successful `bind_settlement_token`.
+/// * Returns `Some(address)` after binding and the value is stable — the token
+///   address can never revert to `None` within the same ledger state.
+/// * No authorization checks; always safe to call from any context.
 ///
 /// # Arguments
 ///
@@ -63,8 +94,18 @@ pub fn read_settlement_token(env: &Env) -> Option<Address> {
 
 /// Persist the settlement token address under the canonical storage key.
 ///
-/// Callers must ensure write-once semantics: a second bind must be
-/// rejected *before* calling this helper.
+/// # ⚠ Precondition — write-once semantics
+///
+/// This is a **raw write** and does **not** enforce write-once semantics on its
+/// own.  Callers that must prevent a second bind (all production entrypoints)
+/// must either:
+///
+/// * Call [`write_settlement_token_once`], which enforces the guard atomically, or
+/// * Check [`is_settlement_token_bound`] before calling this helper.
+///
+/// Calling `write_settlement_token` when a token is already bound silently
+/// overwrites the existing value, which breaks token custody invariants.  Only
+/// internal migration or upgrade code should call this helper directly.
 ///
 /// # Arguments
 ///
@@ -91,6 +132,67 @@ pub fn write_settlement_token(env: &Env, token: &Address) {
     env.storage()
         .persistent()
         .set(&DataKey::SettlementToken, token);
+}
+
+/// Persist the settlement token address **exactly once**, panicking with
+/// [`Error::SettlementTokenAlreadyBound`] on any subsequent call.
+///
+/// Use this instead of [`write_settlement_token`] in any code path where
+/// overwriting an already-bound token would break custody invariants.  The
+/// `bind_settlement_token` entrypoint in `lib.rs` performs an equivalent check
+/// before delegating to [`write_settlement_token`]; new callers should use
+/// this helper instead of reimplementing the same guard.
+///
+/// # Arguments
+///
+/// * `env`   – The Soroban environment.
+/// * `token` – The SAC token [`Address`] to bind.
+///
+/// # Errors
+///
+/// Panics with [`Error::SettlementTokenAlreadyBound`] when a token is already
+/// stored under [`DataKey::SettlementToken`].
+///
+/// # Example
+///
+/// ```no_run
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::Escrow;
+/// use escrow::settlement::{write_settlement_token_once, read_settlement_token};
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// let token = Address::generate(&env);
+///
+/// env.as_contract(&contract, || {
+///     // First write succeeds.
+///     write_settlement_token_once(&env, &token);
+///     assert_eq!(read_settlement_token(&env), Some(token));
+/// });
+/// ```
+///
+/// A second call panics:
+///
+/// ```no_run
+/// use soroban_sdk::{testutils::Address as _, Address, Env};
+/// use escrow::Escrow;
+/// use escrow::settlement::write_settlement_token_once;
+///
+/// let env = Env::default();
+/// let contract = env.register(Escrow, ());
+/// let token1 = Address::generate(&env);
+/// let token2 = Address::generate(&env);
+///
+/// env.as_contract(&contract, || {
+///     write_settlement_token_once(&env, &token1);
+///     write_settlement_token_once(&env, &token2); // panics: SettlementTokenAlreadyBound
+/// });
+/// ```
+pub fn write_settlement_token_once(env: &Env, token: &Address) {
+    if is_settlement_token_bound(env) {
+        env.panic_with_error(Error::SettlementTokenAlreadyBound);
+    }
+    write_settlement_token(env, token);
 }
 
 /// Return `true` when a settlement token has been bound.
@@ -184,6 +286,13 @@ pub fn require_settlement_token(env: &Env) -> Address {
 
 /// Construct the canonical [`DataKey`] for a finalization record.
 ///
+/// # Boundary safety
+///
+/// All `u32` values, including `0` and `u32::MAX`, produce a distinct, valid,
+/// non-colliding key.  Business-rule enforcement (e.g., rejecting
+/// `contract_id == 0`) is the caller's responsibility and happens before
+/// reaching this helper.
+///
 /// # Arguments
 ///
 /// * `contract_id` – The numeric contract identifier.
@@ -205,6 +314,13 @@ pub fn finalization_key(contract_id: u32) -> DataKey {
 }
 
 /// Read a finalization record for `contract_id`, if it exists.
+///
+/// # Invariants
+///
+/// * Returns `None` before `write_finalization` is called for this `contract_id`.
+/// * Returns `Some(record)` after writing.  The `None → Some` transition is
+///   permanent within a given deployment.
+/// * Never panics; performs no authorization.
 ///
 /// # Arguments
 ///
@@ -241,6 +357,12 @@ pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationReco
 }
 
 /// Return `true` when a finalization record already exists for `contract_id`.
+///
+/// # Invariants
+///
+/// * Returns `false` before `write_finalization` and `true` afterwards.
+/// * The `false → true` transition is permanent within a given deployment.
+/// * Never panics; performs no authorization.
 ///
 /// # Arguments
 ///
@@ -296,8 +418,16 @@ pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
         .has(&finalization_key(contract_id))
 }
 
-/// Persist a finalization record.  Callers must guard against double-
-/// finalization ([`is_finalized`]) before calling this helper.
+/// Persist a finalization record.
+///
+/// # ⚠ Precondition — write-once semantics
+///
+/// This is a **raw write**.  Callers are responsible for calling
+/// [`require_not_finalized`] before this helper to enforce the write-once
+/// invariant.  Writing a second time to the same `contract_id` silently
+/// overwrites the existing record, which breaks the immutability guarantee of
+/// finalization records.  The `finalize_contract_impl` entrypoint in
+/// `finalize.rs` enforces this guard; all new callers must do the same.
 ///
 /// # Arguments
 ///
@@ -353,6 +483,11 @@ pub fn write_finalization(env: &Env, contract_id: u32, record: &FinalizationReco
 
 /// Panic with [`Error::AlreadyFinalized`] if a record already exists for
 /// `contract_id`.
+///
+/// This is the **write-once guard** for finalization records.  Always call
+/// this before [`write_finalization`] in production code paths.  The guard is
+/// idempotent on the read side: calling it when no record exists is safe and
+/// has no side effects.
 ///
 /// # Arguments
 ///
@@ -453,7 +588,15 @@ mod tests {
         }
     }
 
-    // ── Settlement token round-trip ────────────────────────────────────────
+    fn dummy_record(env: &Env) -> FinalizationRecord {
+        FinalizationRecord {
+            finalizer: Address::generate(env),
+            timestamp: 42_000,
+            summary: dummy_summary(env),
+        }
+    }
+
+    // ── Settlement token: absent / bound ──────────────────────────────────
 
     #[test]
     fn settlement_token_absent_returns_none() {
@@ -478,7 +621,61 @@ mod tests {
         });
     }
 
-    // ── Finalization round-trip ────────────────────────────────────────────
+    // ── write_settlement_token_once: double-bind guard ─────────────────────
+
+    #[test]
+    fn write_settlement_token_once_first_write_succeeds() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let token = Address::generate(&env);
+
+        env.as_contract(&contract, || {
+            write_settlement_token_once(&env, &token);
+            assert_eq!(read_settlement_token(&env), Some(token));
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Contract, #61)")]
+    fn write_settlement_token_once_second_write_panics() {
+        // Error #61 = SettlementTokenAlreadyBound
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let token1 = Address::generate(&env);
+        let token2 = Address::generate(&env);
+
+        env.as_contract(&contract, || {
+            write_settlement_token_once(&env, &token1);
+            write_settlement_token_once(&env, &token2);
+        });
+    }
+
+    // ── require_settlement_token: success and failure ──────────────────────
+
+    #[test]
+    fn require_settlement_token_returns_address_when_bound() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let token = Address::generate(&env);
+
+        env.as_contract(&contract, || {
+            write_settlement_token(&env, &token);
+            assert_eq!(require_settlement_token(&env), token);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Contract, #52)")]
+    fn require_settlement_token_panics_when_absent() {
+        // Error #52 = SettlementTokenNotConfigured
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        env.as_contract(&contract, || {
+            let _ = require_settlement_token(&env);
+        });
+    }
+
+    // ── Finalization: absent / bound ──────────────────────────────────────
 
     #[test]
     fn finalization_absent_returns_none() {
@@ -534,6 +731,8 @@ mod tests {
         });
     }
 
+    // ── require_not_finalized guard ────────────────────────────────────────
+
     #[test]
     fn require_not_finalized_passes_when_absent() {
         let env = Env::default();
@@ -546,6 +745,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "HostError: Error(Contract, #46)")]
     fn require_not_finalized_panics_when_present() {
+        // Error #46 = AlreadyFinalized
         let env = Env::default();
         let contract = setup_contract(&env);
         let record = FinalizationRecord {
@@ -556,6 +756,102 @@ mod tests {
         env.as_contract(&contract, || {
             write_finalization(&env, 1, &record);
             require_not_finalized(&env, 1);
+        });
+    }
+
+    /// Guard is idempotent on an absent key: two calls pass without side effects.
+    #[test]
+    fn require_not_finalized_idempotent_on_absent_key() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        env.as_contract(&contract, || {
+            require_not_finalized(&env, 77);
+            require_not_finalized(&env, 77);
+        });
+    }
+
+    // ── Boundary contract_id values ────────────────────────────────────────
+
+    /// `u32::MAX` is a valid key at the storage layer — no panic, no collision
+    /// with adjacent IDs.
+    #[test]
+    fn finalization_key_u32_max_is_valid() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = dummy_record(&env);
+
+        env.as_contract(&contract, || {
+            // Before write: absent
+            assert!(!is_finalized(&env, u32::MAX));
+            assert!(read_finalization(&env, u32::MAX).is_none());
+
+            write_finalization(&env, u32::MAX, &record);
+            assert!(is_finalized(&env, u32::MAX));
+            // Adjacent key is unaffected
+            assert!(!is_finalized(&env, u32::MAX - 1));
+        });
+    }
+
+    /// `contract_id == 0` produces a distinct, non-colliding key.
+    /// Upper-layer guards (`validate_contract_id_bounds`) reject zero IDs
+    /// before reaching this helper; here we verify the key semantics are safe.
+    #[test]
+    fn finalization_key_zero_does_not_collide_with_one() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = dummy_record(&env);
+
+        env.as_contract(&contract, || {
+            write_finalization(&env, 0, &record);
+            // contract_id 1 must be unaffected
+            assert!(!is_finalized(&env, 1));
+        });
+    }
+
+    /// Finalization of contract A does not affect contract B.
+    #[test]
+    fn finalization_isolation_across_contracts() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = dummy_record(&env);
+
+        env.as_contract(&contract, || {
+            write_finalization(&env, 10, &record);
+            assert!(is_finalized(&env, 10));
+            assert!(!is_finalized(&env, 11));
+            assert!(!is_finalized(&env, 20));
+            assert!(!is_finalized(&env, u32::MAX));
+        });
+    }
+
+    /// The raw `write_finalization` silently overwrites on a second write.
+    /// This documents the known behaviour; production callers must always
+    /// call `require_not_finalized` first to prevent this.
+    #[test]
+    fn write_finalization_raw_overwrites_on_second_write() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+
+        let record1 = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 100,
+            summary: dummy_summary(&env),
+        };
+        let record2 = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 999,
+            summary: dummy_summary(&env),
+        };
+
+        env.as_contract(&contract, || {
+            write_finalization(&env, 5, &record1);
+            // Raw second write — callers must guard against this via require_not_finalized
+            write_finalization(&env, 5, &record2);
+            assert_eq!(
+                read_finalization(&env, 5).unwrap().timestamp,
+                999,
+                "raw write_finalization overwrites; require_not_finalized is the guard"
+            );
         });
     }
 }

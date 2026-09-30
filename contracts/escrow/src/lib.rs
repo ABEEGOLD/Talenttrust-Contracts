@@ -133,7 +133,7 @@ pub use types::{
     GovernanceProposal, GovernanceProposalKind, GovernanceProposalState, GovernedParameters,
     Milestone, MilestoneApprovals, MilestoneProgress, MilestoneSummary, PauseScope, PauseTarget,
     PendingAdminProposal, ReadinessChecklist, ReleaseAuthorization, Reputation, ReputationConfig,
-    SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
+    SettlementState, SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
 
 // Maximum bounds constants - re-export from amount_validation for API visibility
@@ -799,6 +799,49 @@ impl Escrow {
     // * `false` if no settlement token has been bound yet
     pub fn is_settlement_token_bound(env: Env) -> bool {
         Self::read_settlement_token(&env).is_some()
+    }
+
+    /// Return a read-only snapshot of the settlement layer state.
+    ///
+    /// Aggregates the settlement token binding and the accumulated protocol fees
+    /// into a single [`SettlementState`] value so callers (indexers, clients,
+    /// off-chain tooling) can inspect the full settlement configuration in one
+    /// call without requiring two separate queries.
+    ///
+    /// ## Invariants
+    ///
+    /// * **Read-only**: this entrypoint never mutates storage, emits events, or
+    ///   checks authorization.
+    /// * **Deterministic**: calling this multiple times without any intervening
+    ///   state change returns an identical value.
+    /// * `state.token` is `None` before `bind_settlement_token` is called and
+    ///   `Some(address)` afterwards.  The transition is permanent.
+    /// * `state.accumulated_protocol_fees` is always `>= 0`.  The value
+    ///   defaults to `0` before any milestone is released and grows
+    ///   monotonically with each fee-accrual event.
+    /// * Reading this entrypoint does **not** reset, decrement, or modify
+    ///   `AccumulatedProtocolFees` — fee withdrawal is a separate privileged
+    ///   operation.
+    ///
+    /// ## Returns
+    ///
+    /// A [`SettlementState`] struct with:
+    /// - `token`: `Some(bound_address)` or `None`
+    /// - `accumulated_protocol_fees`: total accrued fees in stroops, `>= 0`
+    ///
+    /// When neither the token nor any fees have been set, returns
+    /// [`SettlementState::default()`] (`token: None, fees: 0`).
+    pub fn get_settlement_state(env: Env) -> SettlementState {
+        let token = Self::read_settlement_token(&env);
+        let accumulated_protocol_fees = env
+            .storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        SettlementState {
+            token,
+            accumulated_protocol_fees,
+        }
     }
 
     // â”€â”€ Initialization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1646,7 +1689,10 @@ impl Escrow {
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
-        contract.funded_amount - contract.released_amount - contract.refunded_amount - accumulated_fees
+        contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees
     }
 
     // Retrieves approval status for a milestone.
@@ -3199,3 +3245,7 @@ impl Escrow {
 /// Test fixtures and suites are compiled only for native test builds, never wasm.
 #[cfg(test)]
 mod test;
+
+/// Settlement guard: double-spend, isolation, and success tests for milestone settlement.
+#[cfg(test)]
+mod settlement_guard_test;
