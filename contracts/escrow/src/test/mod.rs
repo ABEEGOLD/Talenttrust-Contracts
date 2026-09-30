@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub use soroban_sdk::testutils::Address as _;
+pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
@@ -25,6 +26,7 @@ mod deposit;
 // mod disputes_page;
 mod emergency_controls;
 mod fuzz_milestone_deadline;
+mod fuzz_test;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
 mod milestone_transitions_integration;

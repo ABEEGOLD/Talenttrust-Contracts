@@ -674,6 +674,11 @@ impl Escrow {
             0
         };
 
+        // Checks-Effects-Interactions: all state (milestones, contract accounting,
+        // accumulated fees, approvals) is finalized and persisted BEFORE any
+        // token transfer. A reentrant/malicious settlement token therefore
+        // observes fully-mutated state and cannot double-spend or front-run.
+        // This mirrors the single-milestone `release_milestone` ordering.
         // Pass 2: Atomic Execution
         for i in 0..batch_len {
             let milestone_index = milestone_indices.get(i).unwrap();
@@ -687,15 +692,6 @@ impl Escrow {
             };
 
             let net_amount = gross_amount - protocol_fee;
-
-            if let Some(token) = Self::read_settlement_token(&env) {
-                let token_client = token::Client::new(&env, &token);
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &contract.freelancer,
-                    &net_amount,
-                );
-            }
 
             if protocol_fee > 0 {
                 accumulated_fees = accumulated_fees
@@ -754,6 +750,33 @@ impl Escrow {
                 (symbol_short!("ctrct_cmp"), contract_id),
                 (caller, env.ledger().timestamp()),
             );
+        }
+
+        // Interactions last: perform all token transfers only after every
+        // state mutation above has been durably persisted. This guarantees
+        // that a reentrant settlement token cannot observe stale milestone
+        // flags or stale contract accounting, and that a partial failure in
+        // the transfer phase cannot leave the ledger in an inconsistent
+        // (state-mutated-but-not-transferred) intermediate state that a
+        // concurrent retry could exploit.
+        if let Some(token) = Self::read_settlement_token(&env) {
+            let token_client = token::Client::new(&env, &token);
+            for i in 0..batch_len {
+                let milestone_index = milestone_indices.get(i).unwrap();
+                let milestone = milestones.get(milestone_index).unwrap();
+                let gross_amount = milestone.amount;
+                let protocol_fee: i128 = if fee_bps > 0 {
+                    Self::calculate_protocol_fee(&env, gross_amount, fee_bps)
+                } else {
+                    0
+                };
+                let net_amount = gross_amount - protocol_fee;
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &contract.freelancer,
+                    &net_amount,
+                );
+            }
         }
 
         true

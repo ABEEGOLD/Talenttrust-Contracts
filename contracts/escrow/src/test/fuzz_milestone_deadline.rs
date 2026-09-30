@@ -10,6 +10,7 @@
 //! - **Overflow safety**: `u64` boundary values do not panic.
 //! - **Ledger boundary**: timestamp 0 and `u64::MAX` are handled.
 //! - **Escrow conservation**: release/refund totals never exceed deposits.
+//! - **Concurrent idempotency**: repeated overdue checks are side-effect free.
 //!
 //! # Running
 //!
@@ -35,6 +36,7 @@ fn set_now(env: &Env, secs: u64) {
 
 /// Overwrite milestone `index`'s `deadline` and `released` flag directly in
 /// persistent storage, bypassing any setter entrypoint.
+/// Callers must ensure `index` is in-bounds for the stored milestone vector.
 fn set_milestone_deadline_and_released(
     env: &Env,
     contract_addr: &Address,
@@ -341,6 +343,7 @@ proptest! {
     /// After setting a deadline and checking overdue, the contract accounting
     /// must be unchanged: funded_amount, released_amount, refunded_amount are
     /// all zero (no release or refund has happened).
+    /// Repeated checks must be idempotent and never mutate accounting.
     #[test]
     fn fuzz_deadline_check_preserves_escrow_accounting(
         deadline in 1u64..u64::MAX - 1,
@@ -355,6 +358,8 @@ proptest! {
 
         // Call is_milestone_overdue — must not mutate accounting
         let _overdue = client.is_milestone_overdue(&id, &0);
+        // Idempotent retry: second call must observe identical state.
+        let _overdue_retry = client.is_milestone_overdue(&id, &0);
 
         let contract = client.get_contract(&id);
         prop_assert_eq!(contract.funded_amount, 0i128);

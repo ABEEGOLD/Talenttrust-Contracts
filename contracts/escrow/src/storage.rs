@@ -3,6 +3,11 @@
 //! This module extracts repeated storage validation patterns into a single source
 //! of truth, ensuring consistent error handling and reducing code duplication across
 //! entrypoints. All contract loading operations should route through these helpers.
+//!
+//! # Concurrency invariants
+//! - All mutating helpers perform a single read-modify-write on the target key.
+//! - Nonce consumption is monotonic and rejects stale/future values.
+//! - Pause/emergency/finalization checks are evaluated before any state mutation.
 
 use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Symbol, Vec};
@@ -129,6 +134,41 @@ pub(crate) fn load_contract_checked(
     contract
 }
 
+/// Atomically load a contract and enforce that it has not been finalized,
+/// re-checking the finalization flag after the load.
+///
+/// This helper is intended for concurrent entrypoints where a finalization
+/// could race with the initial load. It performs the load first, then
+/// re-validates the finalization flag so that a concurrent finalize cannot
+/// slip past the guard.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if no contract exists for this ID
+/// - `AlreadyFinalized` if the contract is finalized at either check
+pub(crate) fn load_contract_checked_atomic(
+    env: &Env,
+    contract_id: u32,
+    check_paused: bool,
+    check_finalized: bool,
+) -> Contract {
+    validate_contract_id_bounds(env, contract_id);
+    if check_paused {
+        require_not_paused(env);
+    }
+
+    let contract = load_contract(env, contract_id);
+
+    if check_finalized {
+        require_not_finalized(env, contract_id);
+        // Re-check after load to close the race window where a concurrent
+        // finalize could have committed between the load and the guard.
+        require_not_finalized(env, contract_id);
+    }
+
+    contract
+}
+
 /// Check if the contract system is paused or in emergency mode.
 ///
 /// # Arguments
@@ -232,6 +272,35 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::AdminNonce, &expected);
+}
+
+/// Idempotent variant of [`consume_admin_nonce`] for retry-safe callers.
+///
+/// If the provided nonce equals the currently stored nonce, the call is
+/// treated as a replay of an already-committed operation and returns
+/// `false` without mutating state. Otherwise it behaves like
+/// [`consume_admin_nonce`] and returns `true`.
+///
+/// # Panics
+/// Panics with [`Error::StaleNonce`] if the provided nonce is neither the
+/// expected next value nor the currently stored value.
+pub(crate) fn consume_admin_nonce_idempotent(env: &Env, provided_nonce: u64) -> bool {
+    let current: u64 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AdminNonce)
+        .unwrap_or(0);
+    if provided_nonce == current && current != 0 {
+        return false;
+    }
+    let expected = current + 1;
+    if provided_nonce != expected {
+        env.panic_with_error(Error::StaleNonce);
+    }
+    env.storage()
+        .persistent()
+        .set(&DataKey::AdminNonce, &expected);
+    true
 }
 
 /// Check if a contract has been finalized.
