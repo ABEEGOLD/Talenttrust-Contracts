@@ -34,6 +34,8 @@ mod milestone_progress;
 mod pause_controls;
 mod performance;
 mod persistence;
+#[path = "../proptest.rs"]
+mod proptest;
 mod refund;
 mod release;
 mod release_authorization;
