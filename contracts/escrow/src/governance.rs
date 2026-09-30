@@ -27,6 +27,13 @@
 //! Every transition clears or overwrites `PendingAdmin` so an accept can never
 //! be replayed against a cancelled or already-consumed proposal: it simply
 //! finds nothing pending and fails with `Error::InvalidState`.
+//!
+//! Concurrent clients should use the `*_checked` entrypoints with the revision
+//! returned by `get_admin_rotation_revision`. Every successful rotation mutation,
+//! including a legacy call, advances that revision. A stale request therefore
+//! cannot accept/cancel a replacement proposal, even if it has the same address
+//! and was created in the same ledger (the ABA case). Soroban serializes conflicting
+//! transactions and rolls back failed invocations; no process-local lock is needed.
 
 use crate::storage_validation;
 use crate::ttl;
@@ -36,6 +43,27 @@ use crate::{
     ReadinessChecklist, MAX_FEE_BPS, MAX_MAX_MILESTONES, MIN_MAX_MILESTONES,
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
+
+fn require_rotation_revision(env: &Env, expected_revision: u64) {
+    Escrow::require_initialized(env);
+    if Escrow::get_admin_rotation_revision(env.clone()) != expected_revision {
+        env.panic_with_error(Error::StaleNonce);
+    }
+}
+
+/// Advance only in the same atomic invocation as the rotation mutation. Instance
+/// storage prevents independent expiry of the revision from resetting replay
+/// protection while the contract instance remains live. Never wrap at u64::MAX.
+fn advance_rotation_revision(env: &Env) {
+    let revision = Escrow::get_admin_rotation_revision(env.clone())
+        .checked_add(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    env.storage()
+        .instance()
+        .set(&DataKey::AdminRotationRevision, &revision);
+    env.events()
+        .publish((Symbol::new(env, "admin_rotation_revision"),), revision);
+}
 
 #[contractimpl]
 impl Escrow {
@@ -136,12 +164,41 @@ impl Escrow {
 
     // ── Two-step admin transfer ───────────────────────────────────────────────
 
-    /// Propose a new admin. Stores the proposal with a timelock.
-    ///
-    /// Public entrypoint that delegates to [`propose_admin_impl`].
-    ///
-    /// # Events
-    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    /// Current admin-rotation revision. Zero is the initial/pre-upgrade value.
+    pub fn get_admin_rotation_revision(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::AdminRotationRevision)
+            .unwrap_or(0)
+    }
+
+    /// Propose only if the observed rotation revision is still current.
+    /// A stale or replayed request fails with `StaleNonce` without changing state.
+    pub fn propose_admin_checked(env: Env, proposed: Address, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::propose_admin_impl(&env, proposed)
+    }
+
+    /// Accept only the proposal observed at `expected_revision`, with the usual
+    /// proposed-admin authorization, timelock, and expiry checks.
+    pub fn accept_admin_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::accept_admin_impl(&env)
+    }
+
+    /// Cancel only the proposal observed at `expected_revision` (current admin).
+    pub fn cancel_admin_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::cancel_admin_impl(&env)
+    }
+
+    /// Recover only the expired proposal observed at `expected_revision`.
+    pub fn recover_admin_proposal_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::recover_admin_proposal_impl(&env)
+    }
+
+    /// Legacy proposal entrypoint; use `propose_admin_checked` for stale-request protection.
     pub fn propose_admin(env: Env, proposed: Address) -> bool {
         Self::propose_admin_impl(&env, proposed)
     }
@@ -168,6 +225,7 @@ impl Escrow {
             env.panic_with_error(Error::CannotProposeSelf);
         }
 
+        advance_rotation_revision(env);
         env.storage().persistent().set(
             &DataKey::PendingAdmin,
             &PendingAdminProposal {
@@ -238,6 +296,7 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
+        advance_rotation_revision(env);
         env.storage()
             .persistent()
             .set(&DataKey::Admin, &pending_admin);
@@ -291,6 +350,7 @@ impl Escrow {
             .get(&DataKey::PendingAdmin)
             .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
 
+        advance_rotation_revision(env);
         env.storage().persistent().remove(&DataKey::PendingAdmin);
 
         env.events().publish(
@@ -350,6 +410,7 @@ impl Escrow {
             env.panic_with_error(Error::InvalidState);
         }
 
+        advance_rotation_revision(env);
         env.storage().persistent().remove(&DataKey::PendingAdmin);
 
         env.events().publish(

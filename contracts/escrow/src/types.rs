@@ -124,6 +124,8 @@ pub enum DataKey {
     PauseScope,
     /// Monotonic admin nonce for replay protection.
     AdminNonce,
+    /// Monotonic admin-rotation revision, kept with the live contract instance.
+    AdminRotationRevision,
     Emergency,
     // Contract storage
     Contract(u32),
