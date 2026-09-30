@@ -223,6 +223,65 @@ pub fn accumulate_amounts<I: IntoIterator<Item = i128>>(
     Ok(total)
 }
 
+/// Validates the core accounting invariant of the escrow contract.
+///
+/// Ensures that the total amount disbursed (released + refunded + accumulated fees)
+/// does not exceed the total funded amount. This prevents the contract from
+/// holding less than it owes or more than was deposited.
+///
+/// # Arguments
+/// * `funded_amount` - Total amount deposited (in stroops)
+/// * `released_amount` - Total amount released to freelancers (in stroops)
+/// * `refunded_amount` - Total amount refunded to clients (in stroops)
+/// * `accumulated_fees` - Total protocol fees retained (in stroops)
+///
+/// # Returns
+/// `Ok(())` if the invariant holds, `Err(EscrowError::AccountingInvariantViolated)` if it is violated.
+pub fn validate_accounting_invariant(
+    funded_amount: i128,
+    released_amount: i128,
+    refunded_amount: i128,
+    accumulated_fees: i128,
+) -> Result<(), crate::EscrowError> {
+    let disbursed = released_amount
+        .checked_add(refunded_amount)
+        .and_then(|sum| sum.checked_add(accumulated_fees));
+
+    match disbursed {
+        Some(total) if total <= funded_amount => Ok(()),
+        _ => Err(crate::EscrowError::AccountingInvariantViolated),
+    }
+}
+
+/// Calculates the available balance safely and validates the accounting invariant.
+///
+/// The available balance is `funded_amount - released_amount - refunded_amount`.
+/// This function verifies that the available balance is non-negative and
+/// that no underflows occur during calculation.
+///
+/// # Arguments
+/// * `funded_amount` - Total amount deposited (in stroops)
+/// * `released_amount` - Total amount released (in stroops)
+/// * `refunded_amount` - Total amount refunded (in stroops)
+///
+/// # Returns
+/// `Ok(available_balance)` if valid and >= 0, `Err(EscrowError::AccountingInvariantViolated)` otherwise.
+pub fn checked_available_balance(
+    funded_amount: i128,
+    released_amount: i128,
+    refunded_amount: i128,
+) -> Result<i128, crate::EscrowError> {
+    let available = funded_amount
+        .checked_sub(released_amount)
+        .and_then(|value| value.checked_sub(refunded_amount))
+        .ok_or(crate::EscrowError::AccountingInvariantViolated)?;
+
+    if available < 0 {
+        return Err(crate::EscrowError::AccountingInvariantViolated);
+    }
+
+    Ok(available)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +438,45 @@ mod tests {
         assert_eq!(safe_subtract_amounts(300, 100), Some(200));
         assert_eq!(safe_subtract_amounts(0, 1), Some(-1));
         assert_eq!(safe_subtract_amounts(i128::MIN, 1), None);
+    }
+
+    #[test]
+    fn test_validate_accounting_invariant() {
+        // Normal case
+        assert_eq!(validate_accounting_invariant(1000, 500, 300, 200), Ok(()));
+        assert_eq!(validate_accounting_invariant(1000, 500, 300, 100), Ok(()));
+
+        // Violated invariants
+        assert_eq!(
+            validate_accounting_invariant(1000, 500, 400, 200),
+            Err(crate::EscrowError::AccountingInvariantViolated)
+        );
+        assert_eq!(
+            validate_accounting_invariant(1000, 1000, 1000, 1000),
+            Err(crate::EscrowError::AccountingInvariantViolated)
+        );
+
+        // Overflow
+        assert_eq!(
+            validate_accounting_invariant(i128::MAX, i128::MAX, 1, 0),
+            Err(crate::EscrowError::AccountingInvariantViolated)
+        );
+    }
+
+    #[test]
+    fn test_checked_available_balance() {
+        assert_eq!(checked_available_balance(1000, 500, 300), Ok(200));
+        assert_eq!(checked_available_balance(1000, 1000, 0), Ok(0));
+
+        // Underflow / Negative available balance
+        assert_eq!(
+            checked_available_balance(1000, 600, 500),
+            Err(crate::EscrowError::AccountingInvariantViolated)
+        );
+
+        assert_eq!(
+            checked_available_balance(0, 1, 0),
+            Err(crate::EscrowError::AccountingInvariantViolated)
+        );
     }
 }

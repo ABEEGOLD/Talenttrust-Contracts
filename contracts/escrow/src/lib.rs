@@ -500,9 +500,13 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         let new_accumulated = accumulated_fees + protocol_fee;
-        let invariant_sum = contract.released_amount + contract.refunded_amount + new_accumulated;
-        if invariant_sum > contract.funded_amount {
-            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        if let Err(e) = amount_validation::validate_accounting_invariant(
+            contract.funded_amount,
+            contract.released_amount,
+            contract.refunded_amount,
+            new_accumulated,
+        ) {
+            env.panic_with_error(e);
         }
 
         approvals::clear_approvals(&env, contract_id, milestone_index);
@@ -715,10 +719,13 @@ impl Escrow {
                 .checked_add(net_amount)
                 .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
-            let invariant_sum =
-                contract.released_amount + contract.refunded_amount + accumulated_fees;
-            if invariant_sum > contract.funded_amount {
-                env.panic_with_error(EscrowError::AccountingInvariantViolated);
+            if let Err(e) = amount_validation::validate_accounting_invariant(
+                contract.funded_amount,
+                contract.released_amount,
+                contract.refunded_amount,
+                accumulated_fees,
+            ) {
+                env.panic_with_error(e);
             }
 
             approvals::clear_approvals(&env, contract_id, milestone_index);
@@ -1646,7 +1653,10 @@ impl Escrow {
             .persistent()
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
-        contract.funded_amount - contract.released_amount - contract.refunded_amount - accumulated_fees
+        contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees
     }
 
     // Retrieves approval status for a milestone.
