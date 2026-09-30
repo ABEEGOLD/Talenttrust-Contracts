@@ -10,7 +10,7 @@ use soroban_sdk::{Env, Symbol, Vec};
 /// Validate that contract_id is within numeric bounds (non-zero).
 ///
 /// # Panics
-/// - `InvalidContractId` if `contract_id == 0`
+/// - `ContractNotFound` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::ContractNotFound);
@@ -51,7 +51,7 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// * `contract_id` - The contract ID to load
 ///
 /// # Panics
-/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `ContractNotFound` if no contract exists for this ID
 ///
 /// # Returns
@@ -74,7 +74,7 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// * `contract_id` - The contract ID whose milestones to load
 ///
 /// # Panics
-/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `ContractNotFound` if no milestone vector exists for this contract
 ///
 /// # Returns
@@ -101,7 +101,7 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
 /// * `check_finalized` - Whether to verify finalization state
 ///
 /// # Panics
-/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `ContractPaused` if `check_paused` is true and pause flag is set
 /// - `EmergencyActive` if `check_paused` is true and emergency flag is set
 /// - `ContractNotFound` if no contract exists for this ID
@@ -256,7 +256,7 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// * `contract_id` - The contract ID to check
 ///
 /// # Panics
-/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `AlreadyFinalized` if the contract has been finalized
 ///
 /// # Returns
