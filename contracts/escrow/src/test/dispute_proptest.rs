@@ -54,8 +54,6 @@
 //!
 //! Failing seeds are auto-saved to `proptest-regressions/dispute_proptest.txt`.
 
-#![cfg(test)]
-
 extern crate std;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
