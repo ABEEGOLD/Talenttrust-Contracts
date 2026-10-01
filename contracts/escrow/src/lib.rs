@@ -377,6 +377,34 @@ impl Escrow {
         caller: Address,
         milestone_index: u32,
     ) -> bool {
+        Self::release_milestone_inner(env, contract_id, caller, milestone_index, None)
+    }
+
+    /// Release a milestone only if it is still at the version observed by the caller.
+    /// The legacy `release_milestone` entrypoint remains available for ABI compatibility.
+    pub fn release_milestone_with_version(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_index: u32,
+        expected_version: u32,
+    ) -> bool {
+        Self::release_milestone_inner(
+            env,
+            contract_id,
+            caller,
+            milestone_index,
+            Some(expected_version),
+        )
+    }
+
+    fn release_milestone_inner(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_index: u32,
+        expected_version: Option<u32>,
+    ) -> bool {
         Self::require_not_paused(&env);
         caller.require_auth();
 
@@ -433,6 +461,15 @@ impl Escrow {
 
         let mut milestone = milestones.get(milestone_index).unwrap();
 
+        if let Some(version) = expected_version {
+            milestone_transitions::require_expected_version(
+                &env,
+                contract_id,
+                milestone_index,
+                version,
+            );
+        }
+
         if milestone.released {
             env.panic_with_error(Error::MilestoneAlreadyReleased);
         }
@@ -488,6 +525,12 @@ impl Escrow {
         milestone.released = true;
         milestone.funded_amount = gross_amount;
         milestones.set(milestone_index, milestone.clone());
+        milestone_transitions::store_milestone_transition(
+            &env,
+            contract_id,
+            milestone_index,
+            caller.clone(),
+        );
 
         contract.released_amount = contract
             .released_amount
@@ -563,6 +606,35 @@ impl Escrow {
         caller: Address,
         milestone_indices: Vec<u32>,
     ) -> bool {
+        Self::release_milestone_batch_inner(env, contract_id, caller, milestone_indices, None)
+    }
+
+    /// Atomically release a batch only if each milestone still matches the
+    /// caller's corresponding observed version. Versions align positionally
+    /// with `milestone_indices`.
+    pub fn release_batch_v(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_indices: Vec<u32>,
+        expected_versions: Vec<u32>,
+    ) -> bool {
+        Self::release_milestone_batch_inner(
+            env,
+            contract_id,
+            caller,
+            milestone_indices,
+            Some(expected_versions),
+        )
+    }
+
+    fn release_milestone_batch_inner(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_indices: Vec<u32>,
+        expected_versions: Option<Vec<u32>>,
+    ) -> bool {
         Self::require_not_paused(&env);
         caller.require_auth();
 
@@ -618,6 +690,11 @@ impl Escrow {
         ttl::extend_milestone_ttl(&env, contract_id);
 
         let batch_len = milestone_indices.len();
+        if let Some(versions) = &expected_versions {
+            if versions.len() != batch_len {
+                env.panic_with_error(Error::InvalidVersionCount);
+            }
+        }
         for i in 0..batch_len {
             let idx_i = milestone_indices.get(i).unwrap();
             for j in (i + 1)..batch_len {
@@ -637,6 +714,14 @@ impl Escrow {
             }
 
             let milestone = milestones.get(milestone_index).unwrap();
+            if let Some(versions) = &expected_versions {
+                milestone_transitions::require_expected_version(
+                    &env,
+                    contract_id,
+                    milestone_index,
+                    versions.get(i).unwrap(),
+                );
+            }
             if milestone.released {
                 env.panic_with_error(Error::MilestoneAlreadyReleased);
             }
@@ -708,6 +793,12 @@ impl Escrow {
             milestone.released = true;
             milestone.funded_amount = gross_amount;
             milestones.set(milestone_index, milestone.clone());
+            milestone_transitions::store_milestone_transition(
+                &env,
+                contract_id,
+                milestone_index,
+                caller.clone(),
+            );
 
             contract.released_amount = contract
                 .released_amount
@@ -1293,6 +1384,32 @@ impl Escrow {
         contract_id: u32,
         milestone_indices: Vec<u32>,
     ) -> i128 {
+        Self::refund_unreleased_milestones_inner(env, contract_id, milestone_indices, None)
+    }
+
+    /// Refund milestones only when each still has the version observed by the caller.
+    /// `expected_versions` must align positionally with `milestone_indices`.
+    /// The legacy entrypoint remains available for ABI compatibility.
+    pub fn refund_milestones_with_versions(
+        env: Env,
+        contract_id: u32,
+        milestone_indices: Vec<u32>,
+        expected_versions: Vec<u32>,
+    ) -> i128 {
+        Self::refund_unreleased_milestones_inner(
+            env,
+            contract_id,
+            milestone_indices,
+            Some(expected_versions),
+        )
+    }
+
+    fn refund_unreleased_milestones_inner(
+        env: Env,
+        contract_id: u32,
+        milestone_indices: Vec<u32>,
+        expected_versions: Option<Vec<u32>>,
+    ) -> i128 {
         Self::require_not_paused(&env);
         // Validate non-empty request
         if milestone_indices.is_empty() {
@@ -1325,15 +1442,31 @@ impl Escrow {
 
         let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
 
+        if let Some(versions) = &expected_versions {
+            if versions.len() != milestone_indices.len() {
+                env.panic_with_error(Error::InvalidVersionCount);
+            }
+        }
+
         let mut total_refund_amount: i128 = 0;
 
         // Validate all milestones first
-        for idx in milestone_indices.iter() {
+        for position in 0..milestone_indices.len() {
+            let idx = milestone_indices.get(position).unwrap();
             if idx >= milestones.len() {
                 env.panic_with_error(Error::IndexOutOfBounds);
             }
 
             let milestone = milestones.get(idx).unwrap();
+
+            if let Some(versions) = &expected_versions {
+                milestone_transitions::require_expected_version(
+                    &env,
+                    contract_id,
+                    idx,
+                    versions.get(position).unwrap(),
+                );
+            }
 
             // SECURITY: Check if milestone is already released
             if milestone.released {
@@ -1374,6 +1507,12 @@ impl Escrow {
             milestone.refunded = true;
             milestone.refunded_amount = milestone.amount;
             milestones.set(idx, milestone);
+            milestone_transitions::store_milestone_transition(
+                &env,
+                contract_id,
+                idx,
+                contract.client.clone(),
+            );
         }
 
         contract.refunded_amount = contract
@@ -1622,6 +1761,23 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
         ttl::extend_milestone_ttl(&env, contract_id);
         milestones.get(milestone_index)
+    }
+
+    /// Read the optimistic concurrency version for one milestone. Milestones
+    /// without transition metadata (including pre-upgrade entries) start at 0.
+    pub fn get_milestone_version(env: Env, contract_id: u32, milestone_index: u32) -> u32 {
+        let milestone_key = keys::milestone_key(&env, contract_id);
+        let milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&milestone_key)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
+        if milestone_index >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+        ttl::extend_milestone_ttl(&env, contract_id);
+        milestone_transitions::read_milestone_version_and_actor(&env, contract_id, milestone_index)
+            .version
     }
 
     // Returns funded minus released minus refunded for `contract_id`.

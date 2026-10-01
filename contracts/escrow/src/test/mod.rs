@@ -27,6 +27,7 @@ mod emergency_controls;
 mod fuzz_milestone_deadline;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod issue_1430_concurrency;
 mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
