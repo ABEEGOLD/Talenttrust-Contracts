@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-pub use soroban_sdk::testutils::Events as _;
-pub use soroban_sdk::testutils::Address as _;
-pub use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::Ledger as _;
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
@@ -299,6 +297,22 @@ impl EscrowFixtureBuilder {
                 escrow_client.release_milestone(&escrow_id, &client, &(i as u32));
                 completed_milestones = (i as u32) + 1;
             }
+            // Deterministic post-condition: every milestone must have reached
+            // the terminal `Released` state and the contract must be `Completed`.
+            // If any step above silently no-op'd (e.g. duplicate approval or a
+            // stale auth), fail loudly here instead of handing back a fixture
+            // whose in-memory view disagrees with persisted state.
+            let contract = escrow_client.get_contract(&escrow_id);
+            assert_eq!(
+                contract.status,
+                ContractStatus::Completed,
+                "completed() fixture did not reach Completed status"
+            );
+            assert_eq!(
+                contract.released_amount,
+                milestones.iter().fold(0_i128, |sum, amount| sum + amount),
+                "completed() fixture released_amount does not match milestone total"
+            );
         }
 
         assert_escrow_invariants(&escrow, &escrow_id);
@@ -498,6 +512,25 @@ pub fn complete_contract_funded(
         client.approve_milestone_release(&contract_id, &client_addr, &milestone_index);
         client.release_milestone(&contract_id, &client_addr, &milestone_index);
     }
+    // Deterministic terminal-state check: a partially-completed contract must
+    // never be returned as if it were fully released. This makes retries and
+    // partial-failure paths observable at the helper boundary.
+    let contract = client.get_contract(&contract_id);
+    assert_eq!(
+        contract.status,
+        ContractStatus::Completed,
+        "complete_contract_funded did not reach Completed status"
+    );
+    assert_eq!(
+        contract.released_amount,
+        total,
+        "complete_contract_funded released_amount mismatch"
+    );
+    assert_eq!(
+        contract.funded_amount,
+        total,
+        "complete_contract_funded funded_amount mismatch"
+    );
     (client_addr, freelancer_addr, contract_id)
 }
 
@@ -550,6 +583,25 @@ pub fn complete_contract(env: &Env, client: &EscrowClient) -> (Address, Address,
         client.approve_milestone_release(&contract_id, &client_addr, &milestone_index);
         client.release_milestone(&contract_id, &client_addr, &milestone_index);
     }
+    // Deterministic terminal-state check: mirror `complete_contract_funded` so
+    // both completion helpers fail fast on partial completion instead of
+    // returning a fixture that silently disagrees with persisted state.
+    let contract = client.get_contract(&contract_id);
+    assert_eq!(
+        contract.status,
+        ContractStatus::Completed,
+        "complete_contract did not reach Completed status"
+    );
+    assert_eq!(
+        contract.released_amount,
+        total,
+        "complete_contract released_amount mismatch"
+    );
+    assert_eq!(
+        contract.funded_amount,
+        total,
+        "complete_contract funded_amount mismatch"
+    );
     (client_addr, freelancer_addr, contract_id)
 }
 
