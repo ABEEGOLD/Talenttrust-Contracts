@@ -193,6 +193,7 @@ impl Escrow {
             .persistent()
             .set(&milestone_key, &milestone_vec);
 
+        // Advance the counter only after both records have been persisted.
         let next_id = id
             .checked_add(1)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractIdOverflow));
@@ -210,10 +211,11 @@ impl Escrow {
 }
 
 impl Escrow {
-    /// Returns the next available contract ID and asserts it is not already occupied.
+    /// Returns the next ID only when its contract and milestone storage keys
+    /// are both unoccupied.
     ///
     /// # Errors
-    /// * `ContractIdCollision` - If the allocated id slot is already occupied
+    /// * `ContractIdCollision` - If either key for the allocated ID is occupied
     pub(crate) fn next_contract_id(env: &Env) -> u32 {
         let id: u32 = env
             .storage()
@@ -221,12 +223,10 @@ impl Escrow {
             .get(&DataKey::NextContractId)
             .unwrap_or(1);
 
-        if env
-            .storage()
-            .persistent()
-            .get::<_, Contract>(&DataKey::Contract(id))
-            .is_some()
-        {
+        let storage = env.storage().persistent();
+        let contract_key = DataKey::Contract(id);
+        let milestone_key = ttl::milestone_storage_key(env, id);
+        if storage.has(&contract_key) || storage.has(&milestone_key) {
             env.panic_with_error(Error::ContractIdCollision);
         }
 
