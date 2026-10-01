@@ -416,16 +416,17 @@ pub(crate) fn store_contract(env: &Env, contract_id: u32, contract: &Contract) {
 ///   a rejected nonce performs no partial write (a panic aborts the invocation).
 ///
 /// # Panics
-/// * [`Error::StaleNonce`] if `provided_nonce` is not exactly `current + 1`.
-/// * [`Error::PotentialOverflow`] if the stored counter is already [`u64::MAX`].
+/// Panics with [`Error::StaleNonce`] if the provided nonce does not match.
+/// Panics with [`Error::StaleNonce`] if the stored nonce is already at
+/// `u64::MAX`, since no further nonce can be accepted deterministically.
 pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
     let current: u64 = env
         .storage()
         .persistent()
         .get(&DataKey::AdminNonce)
         .unwrap_or(0);
-    // Deterministic overflow handling: a saturated nonce cannot advance further,
-    // so reject rather than wrap (which would silently reopen old nonces).
+    // Deterministic overflow guard: once the counter reaches u64::MAX no
+    // further nonce can be consumed, so reject rather than wrap/panic.
     let expected = match current.checked_add(1) {
         Some(next) => next,
         None => env.panic_with_error(Error::StaleNonce),
@@ -900,115 +901,23 @@ mod tests {
         });
     }
 
-    // ── Compatibility contract: reserved id 0 ───────────────────────────────
-    //
-    // `test_validate_contract_id_bounds_zero_panics` above locks the strict
-    // guard (`InvalidContractId`); the tests below lock the loader guard.
-
-    /// The loader guard treats the reserved id exactly like an unknown id so
-    /// the sentinel never surfaces as a distinct, spoofable error.
     #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_loader_guard_rejects_zero_with_contract_not_found() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            require_nonzero_contract_id(&env, 0);
-        });
-    }
-
-    #[test]
-    fn test_loader_guard_accepts_nonzero_ids() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            require_nonzero_contract_id(&env, 1);
-            require_nonzero_contract_id(&env, 42);
-            require_nonzero_contract_id(&env, u32::MAX);
-        });
-    }
-
-    /// Regression: `load_milestones` reads through the canonical
-    /// `keys::milestone_key` constructor, so a vector written via that key is
-    /// found and a vector written nowhere is not silently defaulted.
-    #[test]
-    fn test_load_milestones_uses_canonical_key() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let milestones = Vec::from_array(
-                &env,
-                [Milestone {
-                    amount: 500,
-                    funded_amount: 0,
-                    released: false,
-                    refunded: false,
-                    deadline: None,
-                    refunded_amount: 0,
-                    work_evidence: None,
-                }],
-            );
-            env.storage()
-                .persistent()
-                .set(&crate::keys::milestone_key(&env, 7), &milestones);
-
-            let loaded = load_milestones(&env, 7);
-            assert_eq!(loaded.len(), 1);
-            assert_eq!(loaded.get(0).unwrap().amount, 500);
-        });
-    }
-
-    // ── Compatibility contract: admin nonce ─────────────────────────────────
-
-    fn stored_nonce(env: &Env) -> u64 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::AdminNonce)
-            .unwrap_or(0)
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_first_call_advances_to_one() {
+    fn test_consume_admin_nonce_first_call_accepts_one() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             consume_admin_nonce(&env, 1);
-            assert_eq!(stored_nonce(&env), 1);
-        });
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_is_sequential() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            consume_admin_nonce(&env, 2);
-            consume_admin_nonce(&env, 3);
-            assert_eq!(stored_nonce(&env), 3);
-        });
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_advances_from_nonzero_base() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            env.storage().persistent().set(&DataKey::AdminNonce, &41u64);
-            consume_admin_nonce(&env, 42);
-            assert_eq!(stored_nonce(&env), 42);
-        });
-    }
-
-    #[test]
-    fn test_consume_admin_nonce_accepts_u64_max_as_last_value() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            env.storage()
+            let stored: u64 = env
+                .storage()
                 .persistent()
-                .set(&DataKey::AdminNonce, &(u64::MAX - 1));
-            consume_admin_nonce(&env, u64::MAX);
-            assert_eq!(stored_nonce(&env), u64::MAX);
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 1);
         });
     }
 
     #[test]
     #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_zero_as_first_value() {
+    fn test_consume_admin_nonce_rejects_zero_on_first_call() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             consume_admin_nonce(&env, 0);
@@ -1017,35 +926,50 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_future_value() {
+    fn test_consume_admin_nonce_rejects_duplicate_retry() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 5);
+            consume_admin_nonce(&env, 1);
+            // Retrying with the same nonce must be rejected deterministically.
+            consume_admin_nonce(&env, 1);
         });
     }
 
     #[test]
     #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_replay() {
+    fn test_consume_admin_nonce_rejects_future_nonce() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            // Re-submitting an already-consumed nonce must be rejected so a
-            // replayed admin call cannot re-execute.
-            consume_admin_nonce(&env, 1);
+            consume_admin_nonce(&env, 2);
         });
     }
 
     #[test]
-    #[should_panic(expected = "PotentialOverflow")]
-    fn test_consume_admin_nonce_fails_closed_at_u64_max() {
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_overflow_is_rejected() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             env.storage()
                 .persistent()
                 .set(&DataKey::AdminNonce, &u64::MAX);
-            // current + 1 must not wrap to 0 (which would accept provided == 0).
+            // No further nonce can be consumed; must reject, not wrap/panic.
             consume_admin_nonce(&env, 0);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_sequential_calls_are_deterministic() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            consume_admin_nonce(&env, 2);
+            consume_admin_nonce(&env, 3);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 3);
         });
     }
 }

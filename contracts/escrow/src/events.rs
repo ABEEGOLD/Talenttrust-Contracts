@@ -17,41 +17,39 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///
 /// # Event Specification
-/// - `(contract_id, status, funded_amount, released_amount, refunded_amount, total_deposited)`
+/// - Panics: `true` if the event was emitted, `false` if validation failed and
+///   the event was not emitted. This makes failure recovery deterministic and
+///   observable for callers that need to retry or reconcile state.
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMustBePositive` if any amount field is negative.
-pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
-    try_emit_contract_indexed_event(env, contract_id, contract)
-        .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_contract_indexed_event`].
+/// # Event Specification
+/// - **Topic**: `(symbol_short!("contract"), contract_id: u32)
+/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)
 ///
-/// Returns `Err(IscubareError::InvalidContractId)` when `contract_id` is zero,
-/// and `Err(IscrubarError::AmountMustBePositive)` when any amount field is
-/// negative. On success the event is published and `Ok(())` is returned.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero or any amount is negative; no event is
+///   published in this case.
 ///
 /// # Invariants
-/// - No event is published when validation fails (no partial side effects).
-/// - The validation is pure and deterministic: the same inputs always produce
-///   the same result and the same event payload.
-pub fn try_emit_contract_indexed_event(
-    env: &Env,
-    contract_id: u32,
-    contract: &Contract,
-) -> Result<u32, EscrowError> {
+
+/// - Events are only emitted for valid, non-zero contract IDs with non-negative
+///   amounts. Invalid inputs return `false` without mutating state or panicking.
+/// - Retries are safe: a failed emission leaves no partial event behind.
+pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) -> bool {
     if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
+        return false;
     }
 
-    validate_event_amounts(
+    if validate_event_amounts(
         contract.funded_amount,
         contract.released_amount,
         contract.refunded_amount,
         contract.total_deposited,
-    )?;
+    )
+    .is_err()
+    {
+        return false;
+    }
 
     env.events().publish(
         (symbol_short!("contract"), contract_id),
@@ -64,12 +62,12 @@ pub fn try_emit_contract_indexed_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Validate that event payload amounts are non-negative.
 /// Returns `Ok(())` when all amounts are >= 0.
-pubcrate fn validate_event_amounts(
+pubc fn validate_event_amounts(
     funded_amount: i128,
     released_amount: i128,
     refunded_amount: i128,
@@ -104,34 +102,33 @@ pubcrate fn validate_dispute_amounts(
 /// Emits an indexed event when a dispute is opened on a contract.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
-/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`"
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))
+/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)
+///
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero or any amount is negative; no event is
+///   published in this case.
 pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
     caller: &Address,
     contract: &Contract,
-) {
-    try_emit_dispute_opened_event(env, contract_id, caller, contract)
-        .unwrap_or_else(|e| env.panic_with_error(e));
-}
+) -> bool {
+    if contract_id == 0 {
+        return false;
+    }
 
-/// Fallible variant of [`emit_dispute_opened_event`].
-///
-/// Validates the contract id and amounts before publishing. On validation
-/// failure no event is emitted and the corresponding error is returned.
-pub fn try_emit_dispute_opened_event(
-    env: &Env,
-    contract_id: u32,
-    caller: &Address,
-    contract: &Contract,
-) -> Result<u32, EscrowError> {
-    validate_dispute_amounts(
-        contract_id,
+    if validate_event_amounts(
         contract.funded_amount,
         contract.released_amount,
         contract.refunded_amount,
-    )?;
+        contract.total_deposited,
+    )
+    .is_err()
+    {
+        return false;
+    }
 
     env.events().publish(
         (symbol_short!("dispute"), symbol_short!("opened")),
@@ -144,18 +141,19 @@ pub fn try_emit_dispute_opened_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Emits an indexed event when a dispute is resolved.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`"
-/// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))
+/// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMustBePositive` if either payout is negative.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero or any payout is negative; no event is
+///   published in this case.
 pub fn emit_dispute_resolved_event(
     env: &Env,
     contract_id: u32,
@@ -163,34 +161,13 @@ pub fn emit_dispute_resolved_event(
     freelancer_payout: i128,
     resolution_code: u32,
     final_status: crate::types::ContractStatus,
-) {
-    try_emit_dispute_resolved_event(
-        env,
-        contract_id,
-        client_payout,
-        freelancer_payout,
-        resolution_code,
-        final_status,
-    )
-    .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_dispute_resolved_event`].
-///
-/// Rejects zero `contract_id` and negative payouts before publishing.
-pub fn try_emit_dispute_resolved_event(
-    env: &Env,
-    contract_id: u32,
-    client_payout: i128,
-    freelancer_payout: i128,
-    resolution_code: u32,
-    final_status: crate::types::ContractStatus,
-) -> Result<u32, EscrowError> {
+) -> bool {
     if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
+        return false;
     }
+
     if client_payout < 0 || freelancer_payout < 0 {
-        return Err(EscrowError::AmountMustBePositive);
+        return false;
     }
 
     env.events().publish(
@@ -204,14 +181,15 @@ pub fn try_emit_dispute_resolved_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Emits an event when a milestone is released to a freelancer.
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMusbePositive` if `amount`, `gross_amount`, or `fee` is negative.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero or `amount`/`gross_amount`/`fee` is negative;
+///   no event is published in this case.
 pub fn emit_milestone_released_event(
     env: &Env,
     contract_id: u32,
@@ -220,36 +198,9 @@ pub fn emit_milestone_released_event(
     gross_amount: i128,
     fee: i128,
     recipient: &Address,
-) {
-    try_emit_milestone_released_event(
-        env,
-        contract_id,
-        milestone_index,
-        amount,
-        gross_amount,
-        fee,
-        recipient,
-    )
-    .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_milestone_released_event`].
-///
-/// Rejects zero `contract_id` and negative amounts before publishing.
-pub fn try_emit_milestone_released_event(
-    env: &Env,
-    contract_id: u32,
-    milestone_index: u32,
-    amount: i128,
-    gross_amount: i128,
-    fee: i128,
-    recipient: &Address,
-) -> Result<u32, EscrowError> {
-    if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
-    }
-    if amount < 0 || gross_amount < 0 || fee < 0 {
-        return Err(EscrowError::AmountMustBePositive);
+) -> bool {
+    if contract_id == 0 || amount < 0 || gross_amount < 0 || fee < 0 {
+        return false;
     }
 
     env.events().publish(
@@ -265,38 +216,24 @@ pub fn try_emit_milestone_released_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Emits an event when a milestone is refunded to the client.
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMusbePositive` if `amount` is negative.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero or `amount` is negative; no event is
+///   published in this case.
 pub fn emit_milestone_refunded_event(
     env: &Env,
     contract_id: u32,
     milestone_index: u32,
     amount: i128,
     recipient: &Address,
-) {
-    try_emit_milestone_refunded_event(env, contract_id, milestone_index, amount, recipient)
-        .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_milestone_refunded_event`].
-pub fn try_emit_milestone_refunded_event(
-    env: &Env,
-    contract_id: u32,
-    milestone_index: u32,
-    amount: i128,
-    recipient: &Address,
-) -> Result<u32, EscrowError> {
-    if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
-    }
-    if amount < 0 {
-        return Err(EscrowError::AmountMustBePositive);
+) -> bool {
+    if contract_id == 0 || amount < 0 {
+        return false;
     }
 
     env.events().publish(
@@ -310,32 +247,22 @@ pub fn try_emit_milestone_refunded_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Emits an event when a milestone is approved by client or arbiter.
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero; no event is published in this case.
 pub fn emit_milestone_approved_event(
     env: &Env,
     contract_id: u32,
     milestone_index: u32,
     approver: &Address,
-) {
-    try_emit_milestone_approved_event(env, contract_id, milestone_index, approver)
-        .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_milestone_approved_event`].
-pub fn try_emit_milestone_approved_event(
-    env: &Env,
-    contract_id: u32,
-    milestone_index: u32,
-    approver: &Address,
-) -> Result<u32, EscrowError> {
+) -> bool {
     if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
+        return false;
     }
 
     env.events().publish(
@@ -348,34 +275,23 @@ pub fn try_emit_milestone_approved_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
 
 /// Emits an event when work evidence is submitted for a milestone.
 ///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
+/// # Returns
+/// - `true` if the event was published.
+/// - `false` if `contract_id` is zero; no event is published in this case.
 pub fn emit_work_evidence_submitted_event(
     env: &Env,
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk:Symbol,
-) {
-    try_emit_work_evidence_submitted_event(env, contract_id, milestone_index, submitter, evidence)
-        .unwrap_or_else(|e| env.panic_with_error(e));
-}
-
-/// Fallible variant of [`emit_work_evidence_submitted_event`].
-pub fn try_emit_work_evidence_submitted_event(
-    env: &Env,
-    contract_id: u32,
-    milestone_index: u32,
-    submitter: &Address,
     evidence: &soroban_sdk::String,
-) -> Result<u32, EscrowError> {
+) -> bool {
     if contract_id == 0 {
-        return Err(EscrowError::InvalidContractId);
+        return false;
     }
 
     env.events().publish(
@@ -389,5 +305,5 @@ pub fn try_emit_work_evidence_submitted_event(
         ),
     );
 
-    Ok(contract_id)
+    true
 }
