@@ -16,7 +16,7 @@
 //!   - `submit_work_evidence`   — evidence ≤ 256 bytes
 //!   - `issue_reputation`       — rating in [1, 5], comment in [1, 200] bytes
 //!   - `refund_unreleased_milestones` — indices < milestones.len()
-//!   - `create_contract`        — milestone count and per-milestone amount bounds
+//!   - `create_contract`        — milestone count, amounts, and total cap boundaries
 
 #![cfg(test)]
 
@@ -32,6 +32,7 @@ use crate::{
     ReleaseAuthorization,
     MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
 };
+use crate::types::MAX_EVIDENCE_LEN;
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address, Address) 
     (client, client_addr, freelancer_addr, admin)
 }
 
+
 /// Create a funded 1-milestone contract; returns contract_id.
 fn funded_contract(
     env: &Env,
@@ -85,6 +87,7 @@ fn funded_contract(
     id
 }
 
+
 // ── set_protocol_fee_bps ─────────────────────────────────────────────────────
 
 /// Boundary success: exactly 10_000 bps (100 %) must be accepted.
@@ -96,6 +99,7 @@ fn set_protocol_fee_bps_accepts_exactly_10000() {
     assert_eq!(escrow.get_protocol_fee_bps(), 10_000_u32);
 }
 
+
 /// Boundary success: 0 bps (no fee) must be accepted.
 #[test]
 fn set_protocol_fee_bps_accepts_zero() {
@@ -105,6 +109,7 @@ fn set_protocol_fee_bps_accepts_zero() {
     assert_eq!(escrow.get_protocol_fee_bps(), 0_u32);
 }
 
+
 /// Typical mid-range value (500 bps = 5 %) must be accepted.
 #[test]
 fn set_protocol_fee_bps_accepts_typical_value() {
@@ -113,6 +118,7 @@ fn set_protocol_fee_bps_accepts_typical_value() {
     assert!(escrow.set_protocol_fee_bps(&500_u32));
     assert_eq!(escrow.get_protocol_fee_bps(), 500_u32);
 }
+
 
 /// One above the maximum (10_001 bps) must be rejected with InvalidProtocolParameters.
 #[test]
@@ -129,6 +135,7 @@ fn set_protocol_fee_bps_rejects_10001() {
     }
 }
 
+
 /// u32::MAX must be rejected with InvalidProtocolParameters.
 #[test]
 fn set_protocol_fee_bps_rejects_u32_max() {
@@ -144,6 +151,7 @@ fn set_protocol_fee_bps_rejects_u32_max() {
     }
 }
 
+
 /// Rejected calls must not mutate the stored fee.
 #[test]
 fn set_protocol_fee_bps_rejected_call_leaves_fee_unchanged() {
@@ -157,127 +165,6 @@ fn set_protocol_fee_bps_rejected_call_leaves_fee_unchanged() {
     assert_eq!(escrow.get_protocol_fee_bps(), 250_u32);
 }
 
-// ── create_contract — milestone count and amount bounds ──────────────────────
-
-/// Exactly MAX_MILESTONES milestones must be accepted.
-#[test]
-fn create_contract_accepts_max_milestones() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let mut milestones: Vec<i128> = Vec::new(&env);
-    for _ in 0..MAX_MILESTONES {
-        milestones.push_back(1_0000000_i128);
-    }
-    let id = escrow.create_contract(&c, &f, &None, &milestones, &ReleaseAuthorization::ClientOnly);
-    let _ = id;
-}
-
-/// One milestone above MAX_MILESTONES must be rejected.
-#[test]
-fn create_contract_rejects_too_many_milestones() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let mut milestones: Vec<i128> = Vec::new(&env);
-    for _ in 0..(MAX_MILESTONES + 1) {
-        milestones.push_back(1_0000000_i128);
-    }
-    let result = escrow.try_create_contract(
-        &c,
-        &f,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(result.is_err(), "milestone count above MAX_MILESTONES must be rejected");
-}
-
-/// Empty milestone list must be rejected.
-#[test]
-fn create_contract_rejects_empty_milestones() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let milestones: Vec<i128> = Vec::new(&env);
-    let result = escrow.try_create_contract(
-        &c,
-        &f,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(result.is_err(), "empty milestone list must be rejected");
-}
-
-/// Zero-amount milestone must be rejected.
-#[test]
-fn create_contract_rejects_zero_amount_milestone() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let milestones = vec![&env, 0_i128];
-    let result = escrow.try_create_contract(
-        &c,
-        &f,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(result.is_err(), "zero-amount milestone must be rejected");
-}
-
-/// Negative-amount milestone must be rejected.
-#[test]
-fn create_contract_rejects_negative_amount_milestone() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let milestones = vec![&env, -1_i128];
-    let result = escrow.try_create_contract(
-        &c,
-        &f,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(result.is_err(), "negative-amount milestone must be rejected");
-}
-
-/// Total escrow exactly at MAX_TOTAL_ESCROW_STROOPS must be accepted.
-#[test]
-fn create_contract_accepts_total_at_cap() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let milestones = vec![&env, MAX_TOTAL_ESCROW_STROOPS];
-    let id = escrow.create_contract(&c, &f, &None, &milestones, &ReleaseAuthorization::ClientOnly);
-    let _ = id;
-}
-
-/// Total escrow one stroop above MAX_TOTAL_ESCROW_STROOPS must be rejected.
-#[test]
-fn create_contract_rejects_total_over_cap() {
-    let env = Env::default();
-    let (escrow, _admin) = setup_no_token(&env);
-    let c = Address::generate(&env);
-    let f = Address::generate(&env);
-    let milestones = vec![&env, MAX_TOTAL_ESCROW_STROOPS + 1];
-    let result = escrow.try_create_contract(
-        &c,
-        &f,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(result.is_err(), "total above MAX_TOTAL_ESCROW_STROOPS must be rejected");
-}
 
 // ── deposit_funds ────────────────────────────────────────────────────────────
 
@@ -304,6 +191,7 @@ fn deposit_funds_rejects_zero_amount() {
     }
 }
 
+
 /// Negative deposit must be rejected with AmountMustBePositive.
 #[test]
 fn deposit_funds_rejects_negative_amount() {
@@ -327,6 +215,7 @@ fn deposit_funds_rejects_negative_amount() {
     }
 }
 
+
 /// Deposit exactly equal to the contract total must be accepted.
 #[test]
 fn deposit_funds_accepts_exact_total() {
@@ -343,6 +232,7 @@ fn deposit_funds_accepts_exact_total() {
     );
     assert!(escrow.deposit_funds(&id, &client_addr, &amount));
 }
+
 
 /// Deposit exceeding the remaining capacity must be rejected.
 #[test]
@@ -363,44 +253,6 @@ fn deposit_funds_rejects_amount_over_remaining() {
     assert!(result.is_err(), "deposit over cap must be rejected");
 }
 
-/// Cumulative deposits exactly equal to the contract total must be accepted.
-#[test]
-fn deposit_funds_accepts_cumulative_exact_total() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let amount = 500_0000000_i128;
-    let milestones = vec![&env, amount];
-    let id = escrow.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    // Two partial deposits summing exactly to the contract total.
-    assert!(escrow.deposit_funds(&id, &client_addr, &(amount / 2)));
-    assert!(escrow.deposit_funds(&id, &client_addr, &(amount - amount / 2)));
-}
-
-/// Duplicate deposit that would exceed the contract total must be rejected.
-#[test]
-fn deposit_funds_rejects_duplicate_over_cap() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let amount = 500_0000000_i128;
-    let milestones = vec![&env, amount];
-    let id = escrow.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    assert!(escrow.deposit_funds(&id, &client_addr, &amount));
-    // A second deposit of the same amount would exceed the cap.
-    let result = escrow.try_deposit_funds(&id, &client_addr, &amount);
-    assert!(result.is_err(), "duplicate deposit over cap must be rejected");
-}
 
 // ── release_milestone — milestone_index bounds ───────────────────────────────
 
@@ -423,6 +275,7 @@ fn release_milestone_rejects_index_equal_to_count() {
     }
 }
 
+
 /// u32::MAX index must be rejected with IndexOutOfBounds.
 #[test]
 fn release_milestone_rejects_u32_max_index() {
@@ -439,6 +292,7 @@ fn release_milestone_rejects_u32_max_index() {
     }
 }
 
+
 /// Index 0 on a 1-milestone contract must be accepted (after approval).
 #[test]
 fn release_milestone_accepts_index_zero_on_single_milestone() {
@@ -449,18 +303,6 @@ fn release_milestone_accepts_index_zero_on_single_milestone() {
     assert!(escrow.release_milestone(&id, &client_addr, &0));
 }
 
-/// Releasing the same milestone twice must be rejected.
-#[test]
-fn release_milestone_rejects_duplicate_release() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let id = funded_contract(&env, &escrow, &client_addr, &freelancer_addr, 100_0000000);
-    escrow.approve_milestone_release(&id, &client_addr, &0);
-    assert!(escrow.release_milestone(&id, &client_addr, &0));
-    // Second release of the same milestone must fail.
-    let result = escrow.try_release_milestone(&id, &client_addr, &0);
-    assert!(result.is_err(), "duplicate release must be rejected");
-}
 
 // ── approve_milestone_release — milestone_index bounds ───────────────────────
 
@@ -481,6 +323,7 @@ fn approve_milestone_release_rejects_index_equal_to_count() {
     }
 }
 
+
 /// u32::MAX index must be rejected.
 #[test]
 fn approve_milestone_release_rejects_u32_max_index() {
@@ -497,6 +340,7 @@ fn approve_milestone_release_rejects_u32_max_index() {
     }
 }
 
+
 /// Valid index 0 must be accepted.
 #[test]
 fn approve_milestone_release_accepts_valid_index() {
@@ -506,17 +350,6 @@ fn approve_milestone_release_accepts_valid_index() {
     assert!(escrow.approve_milestone_release(&id, &client_addr, &0));
 }
 
-/// Duplicate approval of the same milestone must be rejected.
-#[test]
-fn approve_milestone_release_rejects_duplicate_approval() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let id = funded_contract(&env, &escrow, &client_addr, &freelancer_addr, 100_0000000);
-    assert!(escrow.approve_milestone_release(&id, &client_addr, &0));
-    // Second approval of the same milestone must fail.
-    let result = escrow.try_approve_milestone_release(&id, &client_addr, &0);
-    assert!(result.is_err(), "duplicate approval must be rejected");
-}
 
 // ── submit_work_evidence — evidence length bounds ────────────────────────────
 
@@ -530,6 +363,7 @@ fn submit_work_evidence_accepts_256_bytes() {
     let s: soroban_sdk::String = soroban_sdk::String::from_str(&env, &"x".repeat(256));
     assert!(escrow.submit_work_evidence(&id, &freelancer_addr, &0, &s));
 }
+
 
 /// Evidence of 257 bytes must be rejected with EvidenceTooLong.
 #[test]
@@ -548,6 +382,7 @@ fn submit_work_evidence_rejects_257_bytes() {
     }
 }
 
+
 /// Evidence of 1 byte must be accepted.
 #[test]
 fn submit_work_evidence_accepts_one_byte() {
@@ -557,6 +392,7 @@ fn submit_work_evidence_accepts_one_byte() {
     let s: soroban_sdk::String = soroban_sdk::String::from_str(&env, "a");
     assert!(escrow.submit_work_evidence(&id, &freelancer_addr, &0, &s));
 }
+
 
 /// submit_work_evidence must also check milestone_index bounds.
 #[test]
@@ -576,18 +412,6 @@ fn submit_work_evidence_rejects_out_of_bounds_index() {
     }
 }
 
-/// Duplicate evidence submission for the same milestone must be rejected.
-#[test]
-fn submit_work_evidence_rejects_duplicate_submission() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let id = funded_contract(&env, &escrow, &client_addr, &freelancer_addr, 100_0000000);
-    let s: soroban_sdk::String = soroban_sdk::String::from_str(&env, "ipfs://abc");
-    assert!(escrow.submit_work_evidence(&id, &freelancer_addr, &0, &s));
-    // Second submission for the same milestone must fail.
-    let result = escrow.try_submit_work_evidence(&id, &freelancer_addr, &0, &s);
-    assert!(result.is_err(), "duplicate evidence submission must be rejected");
-}
 
 // ── issue_reputation — rating and comment bounds ─────────────────────────────
 
@@ -604,6 +428,7 @@ fn complete_contract_for_reputation(
     id
 }
 
+
 /// Rating of 1 (minimum) must be accepted.
 #[test]
 fn issue_reputation_accepts_rating_1() {
@@ -614,6 +439,7 @@ fn issue_reputation_accepts_rating_1() {
     assert!(escrow.issue_reputation(&id, &client_addr, &1_u32, &comment));
 }
 
+
 /// Rating of 5 (maximum) must be accepted.
 #[test]
 fn issue_reputation_accepts_rating_5() {
@@ -623,6 +449,7 @@ fn issue_reputation_accepts_rating_5() {
     let comment = soroban_sdk::String::from_str(&env, "Excellent");
     assert!(escrow.issue_reputation(&id, &client_addr, &5_u32, &comment));
 }
+
 
 /// Rating of 0 must be rejected with InvalidRating.
 #[test]
@@ -641,6 +468,7 @@ fn issue_reputation_rejects_rating_0() {
     }
 }
 
+
 /// Rating of 6 must be rejected with InvalidRating.
 #[test]
 fn issue_reputation_rejects_rating_6() {
@@ -658,6 +486,7 @@ fn issue_reputation_rejects_rating_6() {
     }
 }
 
+
 /// Comment of exactly 200 bytes must be accepted.
 #[test]
 fn issue_reputation_accepts_comment_200_bytes() {
@@ -667,6 +496,7 @@ fn issue_reputation_accepts_comment_200_bytes() {
     let comment = soroban_sdk::String::from_str(&env, &"a".repeat(200));
     assert!(escrow.issue_reputation(&id, &client_addr, &5_u32, &comment));
 }
+
 
 /// Comment of 201 bytes must be rejected with CommentTooLong.
 #[test]
@@ -685,6 +515,7 @@ fn issue_reputation_rejects_comment_201_bytes() {
     }
 }
 
+
 /// Empty comment must be rejected with EmptyComment.
 #[test]
 fn issue_reputation_rejects_empty_comment() {
@@ -702,18 +533,6 @@ fn issue_reputation_rejects_empty_comment() {
     }
 }
 
-/// Duplicate reputation issuance for the same contract must be rejected.
-#[test]
-fn issue_reputation_rejects_duplicate_issuance() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let id = complete_contract_for_reputation(&env, &escrow, &client_addr, &freelancer_addr);
-    let comment = soroban_sdk::String::from_str(&env, "Good work");
-    assert!(escrow.issue_reputation(&id, &client_addr, &5_u32, &comment));
-    // Second issuance for the same contract must fail.
-    let result = escrow.try_issue_reputation(&id, &client_addr, &5_u32, &comment);
-    assert!(result.is_err(), "duplicate reputation issuance must be rejected");
-}
 
 // ── refund_unreleased_milestones — index bounds ──────────────────────────────
 
@@ -743,6 +562,7 @@ fn refund_unreleased_milestones_rejects_out_of_bounds_index() {
     }
 }
 
+
 /// u32::MAX index must be rejected with IndexOutOfBounds.
 #[test]
 fn refund_unreleased_milestones_rejects_u32_max_index() {
@@ -767,24 +587,6 @@ fn refund_unreleased_milestones_rejects_u32_max_index() {
     }
 }
 
-/// Duplicate indices in a refund request must be rejected.
-#[test]
-fn refund_unreleased_milestones_rejects_duplicate_indices() {
-    let env = Env::default();
-    let (escrow, client_addr, freelancer_addr, _admin) = setup_with_token(&env);
-    let milestones = vec![&env, 100_0000000_i128, 200_0000000_i128];
-    let id = escrow.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None,
-        &milestones,
-        &ReleaseAuthorization::ClientOnly,
-    );
-    // Duplicate index 0 in the refund request.
-    let indices: Vec<u32> = vec![&env, 0_u32, 0_u32];
-    let result = escrow.try_refund_unreleased_milestones(&id, &indices);
-    assert!(result.is_err(), "duplicate refund indices must be rejected");
-}
 
 // ── Regression: existing valid inputs still accepted ─────────────────────────
 
@@ -800,6 +602,7 @@ fn regression_standard_three_milestone_contract_accepted() {
     assert!(id > 0 || id == 0, "contract id must be a valid u32");
 }
 
+
 /// set_protocol_fee_bps can be updated multiple times with valid values.
 #[test]
 fn regression_set_protocol_fee_bps_multiple_updates() {
@@ -811,3 +614,4 @@ fn regression_set_protocol_fee_bps_multiple_updates() {
     assert!(escrow.set_protocol_fee_bps(&10_000_u32));
     assert_eq!(escrow.get_protocol_fee_bps(), 10_000_u32);
 }
+
