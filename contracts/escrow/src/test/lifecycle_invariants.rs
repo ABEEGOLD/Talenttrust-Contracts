@@ -62,6 +62,7 @@ use crate::{
 ///
 /// Using a real SAC lets us cross-check internal accounting counters against
 /// the actual on-chain token balance held by the escrow contract.
+#[allow(dead_code)]
 fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address) {
     env.mock_all_auths_allowing_non_root_auth();
     let contract_addr = env.register(Escrow, ());
@@ -74,6 +75,7 @@ fn setup_with_token(env: &Env) -> (EscrowClient<'_>, Address, Address) {
 }
 
 /// Mint `amount` tokens to `recipient` using the SAC admin interface.
+#[allow(dead_code)]
 fn mint(env: &Env, token: &Address, recipient: &Address, amount: i128) {
     StellarAssetClient::new(env, token).mint(recipient, &amount);
 }
@@ -89,6 +91,7 @@ fn mint(env: &Env, token: &Address, recipient: &Address, amount: i128) {
 ///
 /// Called after every mutating step so the *first* violating operation is
 /// surfaced rather than only discovering the problem at the end of a test.
+#[allow(dead_code)]
 fn assert_accounting_invariant(escrow: &EscrowClient<'_>, contract_id: u32) {
     let c = escrow.get_contract(&contract_id);
     let available = c.total_deposited - c.released_amount - c.refunded_amount;

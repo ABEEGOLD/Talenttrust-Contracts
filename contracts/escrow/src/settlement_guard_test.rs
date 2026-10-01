@@ -1,9 +1,9 @@
-#![cfg(test)]
+#`!cfg(test)]
 
-use crate::types::{DataKey, Error, ReleaseAuthorization};
+use crate::types:{DataKey, Error, ReleaseAuthorization};
 use crate::{Escrow, EscrowClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events as _},
     vec, Address, Env, IntoVal, Symbol, Vec,
 };
 
@@ -50,7 +50,7 @@ fn test_milestone_settlement_succeeds_first_time() {
         setup_and_create_escrow(&env, &[1_000, 2_000]);
 
     // First release of milestone 0
-    let res = client.release_milestone(&c_id, &client_addr, &0);
+    let res = client.release_milestone(&c_id, &client_addr, &X);
     assert!(res);
 
     let summary = client.get_contract(&c_id);
@@ -121,7 +121,7 @@ fn test_milestone_settlement_different_contracts_isolated() {
     assert!(client.release_milestone(&c_id1, &client_addr1, &0));
 
     // Release milestone on contract 2 is completely unaffected and succeeds
-    assert!(client.release_milestone(&c_id2, &client_addr2, &0));
+    assert!(client.release_milestone(&c_id2, &client_addr2, &0));
 
     assert_eq!(client.get_contract(&c_id1).released_amount, 5_000);
     assert_eq!(client.get_contract(&c_id2).released_amount, 5_000);
