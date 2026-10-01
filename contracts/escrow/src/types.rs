@@ -396,6 +396,11 @@ pub enum Error {
     /// one recorded at contract-creation time.  Re-binding with a different
     /// token scale is not allowed after contracts exist.
     TokenScaleMismatch = 83,
+    /// Finalization refused: the contract is in a sealable state but its
+    /// milestone vector is missing, so a complete and accurate close summary
+    /// cannot be built.  Nothing is written; the contract stays mutable so the
+    /// milestone entry can be restored and the seal retried.
+    FinalizationStateIncomplete = 84,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
