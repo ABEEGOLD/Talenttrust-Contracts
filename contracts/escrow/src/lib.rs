@@ -1649,8 +1649,32 @@ impl Escrow {
     // or via dispute resolution. Credits accumulate independently for each
     // completed contract and are consumed one at a time by `issue_reputation`.
     // A `Refunded` contract never calls this helper and therefore earns no credit.
+    //
+    // Failure recovery is deterministic because the accrual policy lives in
+    // exactly one place (`constants::accrue_pending_credit`): the ledger can
+    // never wrap and can never exceed `MAX_PENDING_REPUTATION_CREDITS`. A
+    // rejected accrual panics with a typed error *before* any state is written,
+    // so the whole call rolls back and a retry observes the same ledger value.
+    // The entry is also TTL-bumped so an earned credit cannot be evicted before
+    // the freelancer converts it into a reputation issuance.
     pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
-        reputation::grant_pending_reputation_credit(env, freelancer);
+        let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
+        let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+
+        // Bounded, checked accrual — see `constants.rs` invariants I1-I4.
+        let new_pending = constants::accrue_pending_credit(pending)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+        env.storage().persistent().set(&pending_key, &new_pending);
+        ttl::extend_pending_reputation_credits_ttl(env, freelancer);
+
+        // Observable accrual: indexers can mirror the recovery ledger from this
+        // event, which makes a missing or stuck credit diagnosable off-chain.
+        // The payload carries only public inputs (address, count, timestamp).
+        env.events().publish(
+            (symbol_short!("rep_crdt"), symbol_short!("granted")),
+            (freelancer.clone(), new_pending, env.ledger().timestamp()),
+        );
     }
 
     /// Releases a specific milestone, transferring the net payout to the freelancer.
@@ -2695,7 +2719,109 @@ impl Escrow {
         rating: u32,
         comment: String,
     ) -> bool {
-        reputation::issue_reputation(&env, contract_id, caller, rating, comment)
+        Self::require_not_paused(&env);
+        let mut contract: Contract = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contract(contract_id))
+            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+        ttl::extend_contract_ttl(&env, contract_id);
+
+        if caller != contract.client {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+
+        let reputation_config = Self::get_reputation_config(env.clone());
+
+        if rating < reputation_config.min_rating || rating > reputation_config.max_rating {
+            env.panic_with_error(Error::InvalidRating);
+        }
+
+        if comment.len() == 0 {
+            env.panic_with_error(Error::EmptyComment);
+        }
+
+        if comment.len() > reputation_config.max_comment_bytes {
+            env.panic_with_error(Error::CommentTooLong);
+        }
+
+        if contract.status != ContractStatus::Completed {
+            env.panic_with_error(Error::NotCompleted);
+        }
+
+        if contract.reputation_issued {
+            env.panic_with_error(Error::ReputationAlreadyIssued);
+        }
+        if contract.client == contract.freelancer {
+            env.panic_with_error(Error::UnauthorizedRole);
+        }
+
+        caller.require_auth();
+        contract.reputation_issued = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contract(contract_id), &contract);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReputationIssued(contract_id), &true);
+        env.storage().persistent().extend_ttl(
+            &DataKey::ReputationIssued(contract_id),
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+
+        let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
+        let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+        // Deterministic consumption: an empty ledger and a corrupted ledger both
+        // surface as the same typed error, and the stored value is untouched so
+        // a retry fails identically instead of draining twice.
+        let new_pending = constants::consume_pending_credit(pending)
+            .unwrap_or_else(|| env.panic_with_error(Error::NotCompleted));
+        env.storage().persistent().set(&pending_key, &new_pending);
+        ttl::extend_pending_reputation_credits_ttl(&env, &contract.freelancer);
+
+        let rep_key = DataKey::Reputation(contract.freelancer.clone());
+        let mut rep: types::Reputation =
+            env.storage().persistent().get(&rep_key).unwrap_or_default();
+        let first_write = rep.completed_contracts == 0;
+        rep.completed_contracts += 1;
+        rep.total_rating += rating as i128;
+        rep.last_rating = rating as i128;
+        env.storage().persistent().set(&rep_key, &rep);
+
+        // If this is the first reputation record for this address, append it to the
+        // reputations index for enumerations.
+        if first_write {
+            let mut idx: Vec<Address> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::ReputationIndex)
+                .unwrap_or_else(|| Vec::new(&env));
+            idx.push_back(contract.freelancer.clone());
+            env.storage()
+                .persistent()
+                .set(&DataKey::ReputationIndex, &idx);
+        }
+
+        let comment_key = DataKey::ReputationComment(contract_id);
+        env.storage().persistent().set(&comment_key, &comment);
+        env.storage().persistent().extend_ttl(
+            &comment_key,
+            ttl::PERSISTENT_BUMP_THRESHOLD,
+            ttl::PERSISTENT_TTL_LEDGERS,
+        );
+
+        // 🔔 NEW EVENT: Emit reputation issued event after all state updates.
+        env.events().publish(
+            (symbol_short!("rep_issd"), contract_id),
+            (
+                contract.freelancer.clone(),
+                rating,
+                env.ledger().timestamp(),
+            ),
+        );
+
+        true
     }
 
     // Returns the written feedback provided by the client when reputation was issued.
@@ -2744,9 +2870,8 @@ impl Escrow {
     // because `None` is returned whenever `completed_contracts <= 0` (covers
     // both empty v1 records and corrupted negative counts without host traps).
     pub fn get_average_rating(env: Env, address: Address) -> Option<i128> {
-        // Basis-point scaling factor (Ã—10 000 preserves four decimal places).
-        const SCALE: i128 = 10_000;
-
+        // The basis-point scaling factor is owned by `constants.rs`; a local
+        // copy would be a second source of truth for the same policy value.
         let rep: types::Reputation = env
             .storage()
             .persistent()
@@ -2757,7 +2882,7 @@ impl Escrow {
         }
 
         rep.total_rating
-            .checked_mul(SCALE)
+            .checked_mul(constants::SCALE)
             .and_then(|scaled| scaled.checked_div(rep.completed_contracts))
     }
 
@@ -2767,10 +2892,14 @@ impl Escrow {
     // per successful `issue_reputation` call. Refunded contracts do not accrue
     // pending reputation credits.
     pub fn get_pending_reputation_credits(env: Env, address: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PendingReputationCredits(address))
-            .unwrap_or(0)
+        let key = DataKey::PendingReputationCredits(address.clone());
+        let pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        // Bump-on-read: reading a balance is a read of a durable claim, so the
+        // entry is renewed rather than left to approach eviction.
+        if pending > 0 {
+            ttl::extend_pending_reputation_credits_ttl(&env, &address);
+        }
+        pending
     }
 
     /// Returns a bounded, paginated read view over reputation records.

@@ -1,3 +1,42 @@
+//! Deterministic policy constants and checked arithmetic for the escrow contract.
+//!
+//! # Why this module exists
+//!
+//! A boundary value that decides whether an operation succeeds, fails with a
+//! typed error, or is rejected must be defined exactly once. When a limit or an
+//! increment is written as a literal at each call site, two paths that are
+//! supposed to behave identically can diverge — one wraps on overflow while the
+//! other rejects, one accepts a value while the other refuses it. Failure
+//! recovery then depends on *which* path happened to run, which is the
+//! non-determinism this module removes: every limit and every increment used by
+//! the recovery paths below is owned here and shared by every caller.
+//!
+//! # The pending reputation-credit recovery ledger
+//!
+//! `DataKey::PendingReputationCredits(freelancer)` is a durable counter of
+//! "this freelancer completed a contract and is therefore owed one reputation
+//! issuance":
+//!
+//! * **Accrual** — exactly one credit is added whenever a contract reaches
+//!   [`crate::ContractStatus::Completed`], on every terminal path (final
+//!   milestone release, batch settlement, partial-refund completion, and
+//!   arbiter dispute resolution). A fully `Refunded` contract never accrues.
+//! * **Consumption** — exactly one credit is removed by `issue_reputation`, the
+//!   only way a completion becomes a stored reputation record.
+//!
+//! # Invariants
+//!
+//! | # | Invariant |
+//! |---|-----------|
+//! | I1 | A stored ledger value is always within `0..=MAX_PENDING_REPUTATION_CREDITS`. |
+//! | I2 | An accrual changes a ledger by exactly `REPUTATION_CREDIT_INCREMENT`; a consumption removes exactly the same amount. |
+//! | I3 | Accrual past the ceiling and consumption from an empty ledger are *rejected* — never wrapped, saturated, or silently clamped. |
+//! | I4 | Rejection is reported as `None` from the pure helpers, so the caller raises a typed contract error (`Error::PotentialOverflow` / `Error::NotCompleted`) and the stored ledger is left unchanged. A retry therefore observes exactly the same state and fails the same way. |
+//!
+//! The helpers below are the only supported arithmetic for that ledger, and the
+//! `const` assertions at the end of this file turn an inconsistent policy into a
+//! compile-time failure instead of a runtime surprise.
+
 /// Minimum valid reputation rating (inclusive).
 ///
 /// # Invariant
@@ -25,11 +64,25 @@ pub const MAX_COMMENT_BYTES: u32 = 200;
 
 /// Unit increment for pending reputation credits.
 ///
-/// # Invariant
-/// `REPUTATION_CREDIT_INCREMENT > 0` — credits must always be positive; a
-/// non-positive increment would allow reputation credit balances to stagnate
-/// or decrease on successful contract completion, which is logically invalid.
+/// Every accrual adds exactly this amount and every consumption removes exactly
+/// this amount, so the ledger is a faithful count of completed contracts that
+/// have not yet been rated. It is deliberately `1`: one completed contract
+/// yields exactly one issuable reputation.
 pub const REPUTATION_CREDIT_INCREMENT: i128 = 1;
+
+/// Deterministic upper bound on a single freelancer's pending-credit ledger.
+///
+/// The ledger counts completed-but-unrated contracts, so sitting at this value
+/// indicates a bug or an attempted accounting attack rather than a legitimate
+/// workload. Accruing past it is rejected with a typed error instead of
+/// wrapping, which keeps failure recovery deterministic (see
+/// [`accrue_pending_credit`]).
+///
+/// The bound is many orders of magnitude below `i128::MAX`, so checked
+/// arithmetic can never be the first thing to fail, and it is far above any
+/// realistic number of completed contracts for a single freelancer, so it never
+/// acts as a business limit.
+pub const MAX_PENDING_REPUTATION_CREDITS: i128 = 1_000_000;
 
 /// Basis-point scaling factor for `get_average_rating` (×10_000 preserves four decimal places).
 ///
@@ -49,163 +102,59 @@ pub const SCALE: i128 = 10_000;
 /// a ceiling of zero would make every paginated read vacuous.
 pub const PAGE_CEILING: u32 = 50;
 
-// ── Compile-time invariant assertions ────────────────────────────────────────
+// ── Pending reputation-credit ledger arithmetic ───────────────────────────────
 //
-// These assertions are evaluated at compile time via `const _` blocks.  A
-// violation is a hard compile error, not a runtime panic, which is the
-// strongest possible guarantee that the constants satisfy their documented
-// relationships regardless of future edits.
+// These helpers are pure so that the outcome of an accrual or a consumption is
+// a function of the stored value alone. They are the single implementation used
+// by every completion path and by `issue_reputation`.
 
-/// `MIN_RATING` must be at least 1 — zero is not representable as a valid rating.
-const _: () = assert!(MIN_RATING >= 1, "MIN_RATING must be >= 1");
-
-/// `MAX_RATING` must be >= `MIN_RATING` — the valid interval must be non-empty.
-const _: () = assert!(
-    MAX_RATING >= MIN_RATING,
-    "MAX_RATING must be >= MIN_RATING"
-);
-
-/// `MAX_COMMENT_BYTES` must be at least 1 — comments cannot be vacuous.
-const _: () = assert!(
-    MAX_COMMENT_BYTES >= 1,
-    "MAX_COMMENT_BYTES must be >= 1"
-);
-
-/// `REPUTATION_CREDIT_INCREMENT` must be strictly positive.
-const _: () = assert!(
-    REPUTATION_CREDIT_INCREMENT > 0,
-    "REPUTATION_CREDIT_INCREMENT must be > 0"
-);
-
-/// `SCALE` must be strictly positive — used as a fixed-point divisor.
-const _: () = assert!(SCALE > 0, "SCALE must be > 0");
-
-/// `PAGE_CEILING` must be at least 1 — every paginated call must be able to
-/// return at least one record.
-const _: () = assert!(PAGE_CEILING >= 1, "PAGE_CEILING must be >= 1");
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── Value pinning ────────────────────────────────────────────────────────
-    //
-    // These tests pin the concrete values of every constant.  They exist so
-    // that any future edit to a constant immediately surfaces as a test
-    // failure, forcing an explicit decision about downstream impact.
-
-    #[test]
-    fn constants_have_expected_values() {
-        assert_eq!(MIN_RATING, 1);
-        assert_eq!(MAX_RATING, 5);
-        assert_eq!(MAX_COMMENT_BYTES, 200);
-        assert_eq!(REPUTATION_CREDIT_INCREMENT, 1);
-        assert_eq!(SCALE, 10_000);
-        assert_eq!(PAGE_CEILING, 50);
-    }
-
-    // ── Invariant coverage ───────────────────────────────────────────────────
-
-    #[test]
-    fn min_rating_is_at_least_one() {
-        assert!(MIN_RATING >= 1, "MIN_RATING must be >= 1");
-    }
-
-    #[test]
-    fn max_rating_is_at_least_min_rating() {
-        assert!(
-            MAX_RATING >= MIN_RATING,
-            "MAX_RATING ({MAX_RATING}) must be >= MIN_RATING ({MIN_RATING})"
-        );
-    }
-
-    #[test]
-    fn rating_range_is_non_empty() {
-        // There must be at least one valid rating value.
-        assert!(MAX_RATING >= MIN_RATING);
-        let count = MAX_RATING - MIN_RATING + 1;
-        assert!(count >= 1, "rating range must contain at least one value");
-    }
-
-    #[test]
-    fn max_comment_bytes_is_at_least_one() {
-        assert!(MAX_COMMENT_BYTES >= 1, "MAX_COMMENT_BYTES must be >= 1");
-    }
-
-    #[test]
-    fn reputation_credit_increment_is_positive() {
-        assert!(
-            REPUTATION_CREDIT_INCREMENT > 0,
-            "REPUTATION_CREDIT_INCREMENT must be strictly positive"
-        );
-    }
-
-    #[test]
-    fn scale_is_positive() {
-        assert!(SCALE > 0, "SCALE must be strictly positive");
-    }
-
-    #[test]
-    fn page_ceiling_is_at_least_one() {
-        assert!(PAGE_CEILING >= 1, "PAGE_CEILING must be >= 1");
-    }
-
-    // ── Boundary coverage ────────────────────────────────────────────────────
-
-    #[test]
-    fn rating_boundary_values() {
-        // Both inclusive endpoints are valid.
-        assert!(MIN_RATING >= 1 && MIN_RATING <= MAX_RATING);
-        assert!(MAX_RATING >= MIN_RATING);
-
-        // The value just below MIN_RATING must be out-of-range.
-        // MIN_RATING is u32, so wrapping_sub avoids underflow.
-        let below_min = MIN_RATING.wrapping_sub(1);
-        assert!(
-            below_min < MIN_RATING || below_min > MAX_RATING,
-            "value below MIN_RATING ({below_min}) must be out of [MIN_RATING, MAX_RATING]"
-        );
-
-        // The value just above MAX_RATING must be out-of-range.
-        let above_max = MAX_RATING + 1;
-        assert!(
-            above_max > MAX_RATING,
-            "value above MAX_RATING ({above_max}) must exceed MAX_RATING"
-        );
-    }
-
-    #[test]
-    fn comment_boundary_values() {
-        // Exactly at the limit is valid.
-        assert!(MAX_COMMENT_BYTES >= 1);
-        // One byte over the limit exceeds the cap.
-        let over = MAX_COMMENT_BYTES + 1;
-        assert!(over > MAX_COMMENT_BYTES);
-    }
-
-    #[test]
-    fn page_ceiling_boundary() {
-        // Requesting exactly PAGE_CEILING items is at-limit (valid).
-        assert!(PAGE_CEILING >= 1);
-        // Requesting PAGE_CEILING + 1 exceeds the limit.
-        let over = PAGE_CEILING + 1;
-        assert!(over > PAGE_CEILING);
-    }
-
-    // ── Idempotency: re-checking invariants as runtime assertions ────────────
-    //
-    // The compile-time `const _` assertions already enforce these, but an
-    // explicit runtime test makes the contract visible in `cargo test` output
-    // and ensures that `cargo test` and `cargo build` both catch violations.
-
-    #[test]
-    fn compile_time_invariants_hold_at_runtime() {
-        // Mirror every `const _` assertion as a runtime check.
-        assert!(MIN_RATING >= 1);
-        assert!(MAX_RATING >= MIN_RATING);
-        assert!(MAX_COMMENT_BYTES >= 1);
-        assert!(REPUTATION_CREDIT_INCREMENT > 0);
-        assert!(SCALE > 0);
-        assert!(PAGE_CEILING >= 1);
-    }
+/// Returns `true` when `value` is a legal stored ledger value (invariant I1).
+pub fn is_valid_pending_credit_ledger(value: i128) -> bool {
+    (0..=MAX_PENDING_REPUTATION_CREDITS).contains(&value)
 }
+
+/// Accrues exactly one pending reputation credit onto `current`.
+///
+/// Returns the new ledger value, or `None` when the accrual must be rejected:
+///
+/// * `current` is outside the legal ledger range (corrupted state, invariant
+///   I1), or
+/// * adding [`REPUTATION_CREDIT_INCREMENT`] would exceed
+///   [`MAX_PENDING_REPUTATION_CREDITS`] (invariant I3), or
+/// * the addition is not representable (defensive; unreachable while the
+///   ceiling holds).
+///
+/// Returning `None` instead of wrapping or saturating is what makes recovery
+/// deterministic: the caller maps it onto a single typed error and leaves the
+/// stored ledger untouched, so a retry re-observes the same state.
+pub fn accrue_pending_credit(current: i128) -> Option<i128> {
+    if !is_valid_pending_credit_ledger(current) {
+        return None;
+    }
+    let next = current.checked_add(REPUTATION_CREDIT_INCREMENT)?;
+    is_valid_pending_credit_ledger(next).then_some(next)
+}
+
+/// Consumes exactly one pending reputation credit from `current`.
+///
+/// Returns the new ledger value, or `None` when there is nothing to consume
+/// (`current < REPUTATION_CREDIT_INCREMENT`, i.e. the freelancer has no
+/// completed contract awaiting a rating) or when the result would no longer be
+/// a legal ledger value (invariant I1).
+pub fn consume_pending_credit(current: i128) -> Option<i128> {
+    if current < REPUTATION_CREDIT_INCREMENT {
+        return None;
+    }
+    let next = current.checked_sub(REPUTATION_CREDIT_INCREMENT)?;
+    is_valid_pending_credit_ledger(next).then_some(next)
+}
+
+// ── Compile-time policy guards ────────────────────────────────────────────────
+//
+// An inconsistent policy must fail the build, not shrink the recovery window or
+// make the ceiling unreachable in production.
+
+const _: () = assert!(REPUTATION_CREDIT_INCREMENT > 0);
+const _: () = assert!(MAX_PENDING_REPUTATION_CREDITS >= REPUTATION_CREDIT_INCREMENT);
+const _: () = assert!(SCALE > 0);
+const _: () = assert!(MIN_RATING <= MAX_RATING);

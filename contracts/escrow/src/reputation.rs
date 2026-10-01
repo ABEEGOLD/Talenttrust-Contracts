@@ -1,7 +1,7 @@
 use crate::types::ReputationConfig;
 use crate::{
-    reputation_migration::write_reputation_version,
-    ttl, types, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, PAGE_CEILING,
+    constants, ttl, types, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError,
+    PAGE_CEILING,
 };
 use soroban_sdk::{symbol_short, Address, Env, String, Symbol, Vec};
 
@@ -218,8 +218,24 @@ pubc(crate) fn issue_reputation(
         ttl::PERSISTENT_BUMP_THRESHOLD,
         ttl::PERSISTENT_TTL_LEDGERS,
     );
-    // Stamp v2 so fresh writes never regress to marker-less v1.
-    write_reputation_version(env, &contract.freelancer);
+
+    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    // Deterministic consumption: the single policy in `constants.rs` decides
+    // whether a credit can be spent, so an empty ledger and a corrupted ledger
+    // both fail the same way and leave the stored value untouched.
+    let new_pending = constants::consume_pending_credit(pending)
+        .unwrap_or_else(|| env.panic_with_error(Error::NotCompleted));
+    env.storage().persistent().set(&pending_key, &new_pending);
+    ttl::extend_pending_reputation_credits_ttl(env, &contract.freelancer);
+
+    let rep_key = DataKey::Reputation(contract.freelancer.clone());
+    let mut rep: types::Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+    let first_write = rep.completed_contracts == 0;
+    rep.completed_contracts += 1;
+    rep.total_rating += rating as i128;
+    rep.last_rating = rating as i128;
+    env.storage().persistent().set(&rep_key, &rep);
 
     if first_write {
         let mut idx: Vec<Address> = env
@@ -303,10 +319,15 @@ pubc(crate) fn get_average_rating(env: &Env, address: Address) -> Option<i128> {
 }
 
 pub(crate) fn get_pending_reputation_credits(env: &Env, address: Address) -> i128 {
-    env.storage()
+    let pending: i128 = env
+        .storage()
         .persistent()
-        .get(&DataKey::PendingReputationCredits(address))
-        .unwrap_or(0)
+        .get(&DataKey::PendingReputationCredits(address.clone()))
+        .unwrap_or(0);
+    if pending > 0 {
+        ttl::extend_pending_reputation_credits_ttl(env, &address);
+    }
+    pending
 }
 
 pub(crate) fn get_reputations_page(
@@ -354,14 +375,10 @@ pub(crate) fn get_reputations_page(
     res
 }
 
-pubc(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
-    let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
-    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    if pending < 0 {
-        env.panic_with_error(Error::InvalidState);
-    }
-    let next = pending
-        .checked_add(1)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-    env.storage().persistent().set(&pending_key, &next);
+pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
+    // Delegate to the root implementation so the crate has exactly one accrual
+    // policy. A second, private copy of `pending + 1` is precisely how the two
+    // implementations of this ledger drifted apart, which is the divergence
+    // issue #1404 removes.
+    Escrow::grant_pending_reputation_credit(env, freelancer);
 }
