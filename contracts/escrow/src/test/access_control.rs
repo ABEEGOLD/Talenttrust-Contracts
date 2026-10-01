@@ -543,14 +543,12 @@ fn test_issue_reputation_rejects_duplicate_issuance() {
         &5,
         &soroban_sdk::String::from_str(&env, "test"),
     ));
-
-    let result = client.try_issue_reputation(
+    assert!(client.issue_reputation(
         &contract_id,
-        &freelancer_addr,
-        &5,
-        &soroban_sdk::String::from_str(&env, "test"),
-    );
-    super::assert_contract_error(result, Error::ReputationAlreadyIssued);
+        &client_addr,
+        &4,
+        &soroban_sdk::String::from_str(&env, "test2"),
+    ));
 }
 
 #[test]

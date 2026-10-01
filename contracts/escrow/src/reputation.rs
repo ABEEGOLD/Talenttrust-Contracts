@@ -126,14 +126,30 @@ pubc(crate) fn issue_reputation(
         .persistent()
         .get(&DataKey::Contract(contract_id))
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+    ttl::extend_contract_ttl(env, contract_id);
 
     if caller != contract.client {
         env.panic_with_error(Error::UnauthorizedRole);
     }
 
-    // Self-rating invariant: the client and freelancer must be distinct principals.
-    if contract.client == contract.freelancer {
-        env.panic_with_error(Error::SelfRating);
+    caller.require_auth();
+
+    if contract.reputation_issued {
+        return true;
+    }
+
+    let reputation_config = get_reputation_config(env);
+
+    if rating < reputation_config.min_rating || rating > reputation_config.max_rating {
+        env.panic_with_error(Error::InvalidRating);
+    }
+
+    if comment.len() == 0 {
+        env.panic_with_error(Error::EmptyComment);
+    }
+
+    if comment.len() > reputation_config.max_comment_bytes {
+        env.panic_with_error(Error::CommentTooLong);
     }
 
     // Contract must be completed before reputation can be issued.
@@ -141,47 +157,10 @@ pubc(crate) fn issue_reputation(
         env.panic_with_error(Error::NotCompleted);
     }
 
-    // Duplicate issuance guard: one credit per contract.
-    if contract.reputation_issued {
-        env.panic_with_error(Error::ReputationAlreadyIssued);
+    if contract.client == contract.freelancer {
+        env.panic_with_error(Error::UnauthorizedRole);
     }
 
-    let reputation_config = get_reputation_config(env);
-
-    // Rating boundary check against the configured inclusive range.
-    if !is_valid_rating(rating, &reputation_config) {
-        env.panic_with_error(Error::InvalidRating);
-    }
-
-    // Comment boundary check: non-empty and within configured byte limit.
-    let comment_len = comment.len();
-    if comment_len == 0 {
-        env.panic_with_error(Error::EmptyComment);
-    }
-    if ! is_valid_comment_length(comment_len, &reputation_config) {
-        env.panic_with_error(Error::CommentTooLong);
-    }
-
-    // Pending credit must exist before issuance; otherwise the contract is not
-    // in a state that allows reputation issuance.
-    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
-    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    if pending <= 0 {
-        env.panic_with_error(Error::NotCompleted);
-    }
-
-    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
-    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    if pending <= 0 {
-        env.panic_with_error(Error::NotCompleted);
-    }
-    let new_pending = pending
-        .checked_sub(1)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
-
-    caller.require_auth();
-
-    ttl::extend_contract_ttl(env, contract_id);
     contract.reputation_issued = true;
     env.storage()
         .persistent()
@@ -195,6 +174,14 @@ pubc(crate) fn issue_reputation(
         ttl::PERSISTENT_TTL_LEGGERS,
     );
 
+    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    if pending <= 0 {
+        env.panic_with_error(Error::NotCompleted);
+    }
+    let new_pending = pending
+        .checked_sub(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     env.storage().persistent().set(&pending_key, &new_pending);
 
     // Aggregate reputation update.

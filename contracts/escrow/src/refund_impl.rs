@@ -155,6 +155,19 @@ pub fn refund_unreleased_milestones(
         &total_refund_amount,
     );
 
+    // Emit events
+    for idx in milestone_indices.iter() {
+        let milestone = milestones.get(idx).unwrap();
+        emit_milestone_refunded_event(
+            env,
+            contract_id,
+            idx,
+            milestone.amount,
+            &contract.client,
+        );
+    }
+    emit_contract_indexed_event(env, contract_id, &contract);
+
     total_refund_amount
 }
 
