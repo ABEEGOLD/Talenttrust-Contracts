@@ -1,4 +1,5 @@
 //! Property-based tests for contract creation and state invariants.
+//! Property-based tests for contract creation and state invariants.
 //!
 //! Randomized input testing for escrow contract core invariants:
 //! - Contract creation with valid/invalid milestone amounts
@@ -26,6 +27,7 @@
 extern crate std;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{Mutex, OnceLock};
 use std::vec::Vec as StdVec;
 
 use proptest::prelude::*;
@@ -36,6 +38,18 @@ use crate::{Contract, ContractStatus, Escrow, EscrowClient, ReleaseAuthorization
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Serializes property tests that share the global Soroban test environment.
+///
+/// Soroban's `Env::default()` installs process-wide test state. Running
+/// proptest cases concurrently across threads can interleave that state and
+/// produce non-deterministic results. This guard ensures each property test
+/// body executes under exclusive access, preserving deterministic behavior
+/// for valid, invalid, duplicate, and boundary-case inputs.
+fn test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn setup() -> (Env, EscrowClient<'static>) {
     let env = Env::default();
@@ -63,6 +77,11 @@ fn try_create(
     milestones: Vec<i128>,
     auth: &ReleaseAuthorization,
 ) -> bool {
+    // Guard against concurrent execution of the shared Soroban test env.
+    let _guard = test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     catch_unwind(AssertUnwindSafe(|| {
         client.create_contract(ca, fa, &arbiter, &milestones, auth);
     }))
@@ -333,3 +352,4 @@ proptest! {
         prop_assert_eq!(data.status, ContractStatus::Created);
     }
 }
+
