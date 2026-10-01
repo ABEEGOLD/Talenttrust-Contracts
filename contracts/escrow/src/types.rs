@@ -11,6 +11,14 @@ pub const CONTRACT_SUMMARY_SCHEMA_VERSION: u32 = 1;
 /// upgraded on read by `dispute::load_dispute_metadata`.
 pub const DISPUTE_STORAGE_VERSION: u32 = 1;
 
+/// Current on-ledger layout version for reputation storage.
+///
+/// v1 = legacy layout (only `DataKey::Reputation` present, no version marker).
+/// v2 = current layout (`DataKey::Reputation` + `DataKey::ReputationStorageVersion`).
+/// State writes belong exclusively in `migrate_reputation_storage` and
+/// `issue_reputation`; getters must stay read-only.
+pub const REPUTATION_STORAGE_VERSION: u32 = 2;
+
 /// Legacy (v0) dispute metadata layout without an embedded schema version.
 ///
 /// Retained solely so migrate-on-read can decode pre-versioned records and
@@ -138,6 +146,10 @@ pub enum DataKey {
     PendingReputationCredits(Address),
     Reputation(Address),
     ReputationComment(u32),
+    /// Schema version marker for `Reputation(address)` (stored as u32).
+    /// Absent = v1 legacy layout. Present and equal to
+    /// [`REPUTATION_STORAGE_VERSION`](crate::REPUTATION_STORAGE_VERSION) = v2 current.
+    ReputationStorageVersion(Address),
     /// Index of addresses that have reputation records. Used by paginated readers.
     ReputationIndex,
     // Client migration
