@@ -22,6 +22,7 @@
 //   G8. total > MAX_TOTAL_ESCROW_STROOPS       → InvalidMilestoneAmount
 //   G9. total == MAX_TOTAL_ESCROW_STROOPS      → succeeds
 //   G10. count-guard fires before amount-guard → TooManyMilestones
+//   G11. duplicate submissions produce distinct, deterministic results
 
 #![cfg(test)]
 
@@ -541,6 +542,134 @@ fn create_contract_still_accepts_original_three_milestone_example() {
     );
     // First contract ID starts at 1 (next_contract_id defaults to 1).
     assert_eq!(id, 1);
+}
+
+// ── Duplicate submissions: determinism and distinctness ──────────────────────
+
+/// Two identical `create_contract` calls must both succeed and yield distinct,
+/// monotonically increasing contract IDs — no silent deduplication, no state
+/// corruption. This guards against concurrent/retried submissions collapsing
+/// into a single contract.
+#[test]
+fn duplicate_submissions_produce_distinct_contract_ids() {
+    let (env, cid) = setup();
+    let client = EscrowClient::new(&env, &cid);
+    let c = Address::generate(&env);
+    let f = Address::generate(&env);
+    let amounts = vec![&env, 100_i128, 200_i128];
+    let first = client.create_contract(
+        &c,
+        &f,
+        &None,
+        &amounts,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    let second = client.create_contract(
+        &c,
+        &f,
+        &None,
+        &amounts,
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert_ne!(first, second, "duplicate submissions must not collide");
+    assert_eq!(second, first + 1, "contract IDs must increment by one");
+}
+
+/// A rejected duplicate (invalid input) must not advance the contract ID
+/// counter — a failed attempt must leave no observable state change.
+#[test]
+fn rejected_submission_does_not_advance_contract_id() {
+    let (env, cid) = setup();
+    let client = EscrowClient::new(&env, &cid);
+    let c = Address::generate(&env);
+    let f = Address::generate(&env);
+    // First, a rejected attempt (empty milestones).
+    let rejected = client.try_create_contract(
+        &c,
+        &f,
+        &None,
+        &Vec::new(&env),
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert!(rejected.is_err(), "empty milestones must be rejected");
+    // Then a valid submission — must receive the first ID (1), proving the
+    // rejected attempt did not consume an ID.
+    let id = client.create_contract(
+        &c,
+        &f,
+        &None,
+        &vec![&env, 100_i128],
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert_eq!(id, 1, "rejected attempt must not consume a contract ID");
+}
+
+// ── Boundary: single-amount cap exactly at MAX_SINGLE_AMOUNT_STROOPS ─────────
+
+/// A single milestone exactly at `MAX_SINGLE_AMOUNT_STROOPS` must be accepted.
+#[test]
+fn accepts_single_amount_exactly_at_single_cap() {
+    let (env, cid) = setup();
+    let client = EscrowClient::new(&env, &cid);
+    let c = Address::generate(&env);
+    let f = Address::generate(&env);
+    client.create_contract(
+        &c,
+        &f,
+        &None,
+        &vec![&env, MAX_SINGLE_AMOUNT_STROOPS],
+        &ReleaseAuthorization::ClientOnly,
+    );
+}
+
+/// A single milestone one stroop above `MAX_SINGLE_AMOUNT_STROOPS` must be
+/// rejected with `InvalidMilestoneAmount`.
+#[test]
+fn rejects_single_amount_one_over_single_cap() {
+    let (env, cid) = setup();
+    let client = EscrowClient::new(&env, &cid);
+    let c = Address::generate(&env);
+    let f = Address::generate(&env);
+    assert_err(
+        client.try_create_contract(
+            &c,
+            &f,
+            &None,
+            &vec![&env, MAX_SINGLE_AMOUNT_STROOPS + 1],
+            &ReleaseAuthorization::ClientOnly,
+        ),
+        EscrowError::InvalidMilestoneAmount,
+    );
+}
+
+/// `get_bounds().max_single_milestone_stroops` must be consistent with the
+/// per-amount guard: exactly at the reported cap succeeds, one over fails.
+#[test]
+fn get_bounds_single_cap_matches_create_contract_boundary() {
+    let (env, cid) = setup();
+    let client = EscrowClient::new(&env, &cid);
+    let bounds = client.get_bounds();
+    let c = Address::generate(&env);
+    let f = Address::generate(&env);
+    // Exactly at the reported cap — must succeed.
+    client.create_contract(
+        &c,
+        &f,
+        &None,
+        &vec![&env, bounds.max_single_milestone_stroops],
+        &ReleaseAuthorization::ClientOnly,
+    );
+    // One stroop over the reported cap — must fail.
+    let c2 = Address::generate(&env);
+    let f2 = Address::generate(&env);
+    let result = client.try_create_contract(
+        &c2,
+        &f2,
+        &None,
+        &vec![&env, bounds.max_single_milestone_stroops + 1],
+        &ReleaseAuthorization::ClientOnly,
+    );
+    assert!(result.is_err(), "one stroop over single cap must be rejected");
 }
 
 // ── ContractBounds struct: type-level properties ──────────────────────────────

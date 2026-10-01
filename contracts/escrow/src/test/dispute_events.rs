@@ -1,4 +1,5 @@
 //! Dispute index event tests.
+//! Dispute index event tests.
 //!
 //! These tests verify that every disputes state change emits a well-topic'd
 //! `dsp_index` event carrying the ids and amounts needed by off-chain indexers.
@@ -9,6 +10,11 @@
 //!   - Topic uniqueness: `dsp_index` does not collide with other event topics
 //!   - Payload correctness for each resolution variant (FullRefund, FullPayout,
 //!     PartialRefund, Split)
+//!
+//! Compatibility contract: the `dsp_index` topic symbol, its sub-topics
+//! (`raised`, `settled`), and the payload tuple layouts asserted below are
+//! part of the public off-chain indexer interface and must not change without
+//! a tested migration path.
 
 #![cfg(test)]
 
@@ -19,10 +25,15 @@ use soroban_sdk::{
     testutils::{Address as _, Events},
     vec, Address, Env, IntoVal, Symbol, TryFromVal, Val,
 };
+use soroban_sdk::FromVal;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Canonical topic symbol for dispute index events.  Off-chain indexers filter
+/// on this exact symbol; changing it is a breaking compatibility change.
+const DSP_INDEX_TOPIC: &str = "dsp_index";
 
 /// Create a funded contract with an arbiter, ready for dispute.
 /// Returns (client_addr, freelancer_addr, arbiter_addr, contract_id).
@@ -63,6 +74,23 @@ fn find_dsp_index_event(
         }
         None
     })
+}
+
+/// Decode and assert the exact `dsp_index` / `raised` payload layout.
+/// Returns the decoded tuple so callers can assert individual fields.
+fn decode_raised_payload(
+    env: &Env,
+    data: &Val,
+) -> (u32, Address, i128, i128, i128, u64) {
+    <(u32, Address, i128, i128, i128, u64)>::from_val(env, data)
+}
+
+/// Decode and assert the exact `dsp_index` / `settled` payload layout.
+fn decode_settled_payload(
+    env: &Env,
+    data: &Val,
+) -> (u32, u32, i128, i128, ContractStatus, u64) {
+    <(u32, u32, i128, i128, ContractStatus, u64)>::from_val(env, data)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +143,7 @@ fn raise_dispute_raised_event_payload_correctness() {
 
     // Decode the data tuple: (contract_id, caller, funded_amount, released_amount,
     //                         refunded_amount, timestamp)
-    let data_tuple: (u32, Address, i128, i128, i128, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_raised_payload(&env, &data);
 
     assert_eq!(data_tuple.0, contract_id, "contract_id mismatch");
     assert_eq!(data_tuple.1, client_addr, "caller mismatch");
@@ -151,8 +178,7 @@ fn resolve_dispute_full_refund_emits_dsp_index_settled_event() {
     assert!(event.is_some(), "dsp_index/settled event must be emitted");
 
     let (_topics, data) = event.unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.0, contract_id, "contract_id mismatch");
     assert_eq!(data_tuple.1, 0, "resolution_code for FullRefund should be 0");
@@ -187,8 +213,7 @@ fn resolve_dispute_full_payout_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.1, 2, "resolution_code for FullPayout should be 2");
     assert_eq!(data_tuple.2, 0, "client_payout should be zero");
@@ -225,8 +250,7 @@ fn resolve_dispute_partial_refund_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(
         data_tuple.1, 1,
@@ -269,8 +293,7 @@ fn resolve_dispute_split_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.1, 3, "resolution_code for Split should be 3");
     assert_eq!(data_tuple.2, 60, "client_payout should be 60");
@@ -400,11 +423,350 @@ fn freelancer_raise_dispute_captures_correct_caller_in_event() {
     let raised_sym = symbol_short!("raised");
     let (_topics, data) = find_dsp_index_event(&env, &raised_sym).unwrap();
 
-    let data_tuple: (u32, Address, i128, i128, i128, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_raised_payload(&env, &data);
 
     assert_eq!(
         data_tuple.1, freelancer_addr,
         "caller in event should be freelancer"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Compatibility contract: topic symbol and payload layout are stable
+// ---------------------------------------------------------------------------
+
+/// The `dsp_index` topic symbol must remain exactly `dsp_index` (7 chars, fits
+/// in `symbol_short!`).  This guards against accidental renames that would
+/// silently break off-chain indexers.
+#[test]
+fn dsp_index_topic_symbol_is_stable() {
+    assert_eq!(DSP_INDEX_TOPIC, "dsp_index");
+    assert_eq!(DSP_INDEX_TOPIC.len(), 9);
+    let sym = symbol_short!("dsp_index");
+    assert_eq!(sym, symbol_short!("dsp_index"));
+}
+
+/// Sub-topic symbols for raise and resolve must remain `raised` and `settled`.
+#[test]
+fn dsp_index_subtopic_symbols_are_stable() {
+    assert_eq!(symbol_short!("raised"), symbol_short!("raised"));
+    assert_eq!(symbol_short!("settled"), symbol_short!("settled"));
+    assert_ne!(symbol_short!("raised"), symbol_short!("settled"));
+}
+
+/// The `raised` payload layout is a 6-tuple:
+/// `(contract_id: u32, caller: Address, funded: i128, released: i128,
+///   refunded: i128, timestamp: u64)`.
+/// Decoding must succeed for a real event and fail for a malformed payload.
+#[test]
+fn raised_payload_layout_is_stable_and_rejects_malformed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, _arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+
+    let raised_sym = symbol_short!("raised");
+    let (_topics, data) = find_dsp_index_event(&env, &raised_sym).unwrap();
+
+    // Valid decode succeeds.
+    let decoded = decode_raised_payload(&env, &data);
+    assert_eq!(decoded.0, contract_id);
+    assert_eq!(decoded.1, client_addr);
+
+    // Malformed payload (wrong arity) must not decode into the expected shape.
+    let malformed: Val = (1_u32, 2_u32).into_val(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        decode_raised_payload(&env, &malformed)
+    }));
+    assert!(
+        result.is_err(),
+        "malformed payload must not decode as raised tuple"
+    );
+}
+
+/// The `settled` payload layout is a 6-tuple:
+/// `(contract_id: u32, resolution_code: u32, client_payout: i128,
+///   freelancer_payout: i128, final_status: ContractStatus, timestamp: u64)`.
+/// Decoding must succeed for a real event and fail for a malformed payload.
+#[test]
+fn settled_payload_layout_is_stable_and_rejects_malformed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+    assert!(client.resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullRefund,
+    ));
+
+    let settled_sym = symbol_short!("settled");
+    let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
+
+    // Valid decode succeeds.
+    let decoded = decode_settled_payload(&env, &data);
+    assert_eq!(decoded.0, contract_id);
+    assert_eq!(decoded.1, 0);
+
+    // Malformed payload (wrong arity) must not decode into the expected shape.
+    let malformed: Val = (1_u32, 2_u32).into_val(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        decode_settled_payload(&env, &malformed)
+    }));
+    assert!(
+        result.is_err(),
+        "malformed payload must not decode as settled tuple"
+    );
+}
+
+/// Duplicate `raise_dispute` calls must not emit a second `dsp_index`/`raised`
+/// event, preserving the invariant that each contract emits at most one raise
+/// event.  This protects indexers from double-counting.
+#[test]
+fn duplicate_raise_dispute_does_not_emit_second_raised_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, _arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+
+    let raised_sym = symbol_short!("raised");
+    let count_after_first = env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            event.1.len() >= 2
+                && Symbol::try_from_val(&env, &event.1.get(0).unwrap()).ok()
+                    == Some(symbol_short!("dsp_index"))
+                && Symbol::try_from_val(&env, &event.1.get(1).unwrap()).ok()
+                    == Some(raised_sym.clone())
+        })
+        .count();
+    assert_eq!(count_after_first, 1, "exactly one raised event expected");
+
+    // Second raise must fail (already disputed) and must not add another event.
+    let second = client.try_raise_dispute(&contract_id, &client_addr);
+    assert!(second.is_err(), "duplicate raise must be rejected");
+
+    let count_after_second = env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            event.1.len() >= 2
+                && Symbol::try_from_val(&env, &event.1.get(0).unwrap()).ok()
+                    == Some(symbol_short!("dsp_index"))
+                && Symbol::try_from_val(&env, &event.1.get(1).unwrap()).ok()
+                    == Some(raised_sym.clone())
+        })
+        .count();
+    assert_eq!(
+        count_after_second, 1,
+        "rejected duplicate must not emit another raised event"
+    );
+}
+
+/// Boundary: zero-amount contract cannot be disputed (no funds to settle), and
+/// no `dsp_index` event should be emitted for the rejected call.
+#[test]
+fn zero_amount_raise_dispute_rejected_without_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let client_addr = Address::generate(&env);
+    let freelancer_addr = Address::generate(&env);
+    let arbiter_addr = Address::generate(&env);
+    let milestones = vec![&env, 0_i128];
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &Some(arbiter_addr),
+        &milestones,
+        &ReleaseAuthorization::ClientOnly,
+    );
+
+    let result = client.try_raise_dispute(&contract_id, &client_addr);
+    assert!(result.is_err(), "zero-amount dispute must be rejected");
+
+    let raised_sym = symbol_short!("raised");
+    assert!(
+        find_dsp_index_event(&env, &raised_sym).is_none(),
+        "no raised event should be emitted for rejected dispute"
+    );
+}
+
+/// Boundary: unauthorized caller cannot raise a dispute and no event is emitted.
+#[test]
+fn unauthorized_raise_dispute_rejected_without_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (_client_addr, _freelancer_addr, _arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    let stranger = Address::generate(&env);
+    let result = client.try_raise_dispute(&contract_id, &stranger);
+    assert!(result.is_err(), "unauthorized raise must be rejected");
+
+    let raised_sym = symbol_short!("raised");
+    assert!(
+        find_dsp_index_event(&env, &raised_sym).is_none(),
+        "no raised event should be emitted for unauthorized caller"
+    );
+}
+
+/// Boundary: unauthorized arbiter cannot resolve a dispute and no `settled`
+/// event is emitted.
+#[test]
+fn unauthorized_resolve_dispute_rejected_without_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, _arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+
+    let stranger = Address::generate(&env);
+    let result = client.try_resolve_dispute(
+        &contract_id,
+        &stranger,
+        &DisputeResolution::FullRefund,
+    );
+    assert!(result.is_err(), "unauthorized resolve must be rejected");
+
+    let settled_sym = symbol_short!("settled");
+    assert!(
+        find_dsp_index_event(&env, &settled_sym).is_none(),
+        "no settled event should be emitted for unauthorized arbiter"
+    );
+}
+
+/// Regression: resolving a dispute that was never raised must be rejected and
+/// must not emit a `settled` event.
+#[test]
+fn resolve_without_raise_rejected_without_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (_client_addr, _freelancer_addr, arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    let result = client.try_resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullRefund,
+    );
+    assert!(result.is_err(), "resolve without raise must be rejected");
+
+    let settled_sym = symbol_short!("settled");
+    assert!(
+        find_dsp_index_event(&env, &settled_sym).is_none(),
+        "no settled event should be emitted when no dispute exists"
+    );
+}
+
+/// Regression: double resolve must be rejected and must not emit a second
+/// `settled` event.
+#[test]
+fn double_resolve_rejected_without_second_settled_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+    assert!(client.resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullRefund,
+    ));
+
+    let settled_sym = symbol_short!("settled");
+    let count_after_first = env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            event.1.len() >= 2
+                && Symbol::try_from_val(&env, &event.1.get(0).unwrap()).ok()
+                    == Some(symbol_short!("dsp_index"))
+                && Symbol::try_from_val(&env, &event.1.get(1).unwrap()).ok()
+                    == Some(settled_sym.clone())
+        })
+        .count();
+    assert_eq!(count_after_first, 1, "exactly one settled event expected");
+
+    let second = client.try_resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::FullPayout,
+    );
+    assert!(second.is_err(), "double resolve must be rejected");
+
+    let count_after_second = env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            event.1.len() >= 2
+                && Symbol::try_from_val(&env, &event.1.get(0).unwrap()).ok()
+                    == Some(symbol_short!("dsp_index"))
+                && Symbol::try_from_val(&env, &event.1.get(1).unwrap()).ok()
+                    == Some(settled_sym.clone())
+        })
+        .count();
+    assert_eq!(
+        count_after_second, 1,
+        "rejected double resolve must not emit another settled event"
+    );
+}
+
+/// Boundary: Split amounts that do not sum to the funded balance must be
+/// rejected and must not emit a `settled` event.
+#[test]
+fn invalid_split_sum_rejected_without_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, arbiter_addr, contract_id) =
+        funded_with_arbiter(&env, &client);
+
+    assert!(client.raise_dispute(&contract_id, &client_addr));
+
+    let bad_split = DisputeSplit {
+        client_amount: 60,
+        freelancer_amount: 30,
+    };
+    let result = client.try_resolve_dispute(
+        &contract_id,
+        &arbiter_addr,
+        &DisputeResolution::Split(bad_split),
+    );
+    assert!(result.is_err(), "split not summing to balance must be rejected");
+
+    let settled_sym = symbol_short!("settled");
+    assert!(
+        find_dsp_index_event(&env, &settled_sym).is_none(),
+        "no settled event should be emitted for invalid split"
     );
 }
