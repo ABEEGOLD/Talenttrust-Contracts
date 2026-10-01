@@ -1,4 +1,4 @@
-#![cfg(test)]
+#`!cfg(test)]
 
 use crate::{
     test::{EscrowFixtureBuilder, MILESTONE_ONE, MILESTONE_TWO, MILESTONE_THREE},
@@ -6,6 +6,51 @@ use crate::{
 };
 use soroban_sdk::{testutils::Events, testutils::Address, token::StellarAssetClient, vec, Env};
 
+/// Tests in this module lock down the state invariants that
+/// `finalize_contract` must preserve:
+///
+/// Invariants:
+/// 1. Only a contract in `ContractStatus::Completed` may be finalized.
+/// 2. A successful finalization writes exactly one immutable record
+///    whose `finalizer` is the authorized caller and whose summary
+///    snapshots the completed state.
+/// 3. Repeated or concurrent finalization attempts fail with
+///    `Error::AlreadyFinalized` and must not mutate state or emit
+///    duplicate events.
+/// 4. Forbidden transitions (Funded, Disputed, etc.) fail with
+///    `Error::InvalidStatusTransition` and leave the record unwritten.
+
+/// Builds a single-milestone escrow that is fully funded but not
+/// yet released. This is the canonical "Funded" starting point used
+/// by the negative tests below.
+fn funded_fixture(env: &Env) -> EscrowFixture {
+    EscrowFixture::setup_with_config(
+        env,
+        SetupConfig {
+            milestone_count: 1,
+            amounts: vec![env, 100],
+            total_amount: 100,
+            fund_amount: 100,
+            ..Default::default()
+        },
+    )
+}
+
+/// Builds a single-milestone escrow and releases the only
+/// milestone so the contract reaches `ContractStatus::Completed`.
+/// This is the canonical state from which finalization is allowed.
+fn completed_fixture(env: &Env) -> EscrowFixture {
+    let fixture = funded_fixture(env);
+    fixture
+        .client
+        .release_milestone(&fixture.escrow_id, &fixture.client_addr, &0);
+    fixture
+}
+
+/// Completing the contract and then finalizing it must succeed,
+/// persist an immutable record attributed to the caller, and leave
+/// the contract in the `Completed` state.
+/// This is the primary happy-path guarantee.
 #[test]
 fn test_eligible_closure() {
     let fixture = EscrowFixtureBuilder::new().funded().completed().build();
@@ -16,11 +61,17 @@ fn test_eligible_closure() {
     // Finalize the completed contract
     assert!(escrow.finalize_contract(&contract_id, client));
 
+    // The record must be attributed to the caller and snapshot the
+    // completed state.
     let record = escrow.get_finalization_record(&contract_id).unwrap();
     assert_eq!(record.finalizer, client.clone());
     assert_eq!(record.summary.status, ContractStatus::Completed);
 }
 
+/// A Funded contract that has not been completed must reject
+/// finalization with `InvalidStatusTransition` and must not write
+/// a finalization record.
+/// This locks down the "only Completed may finalize" invariant.
 #[test]
 fn test_active_balance() {
     let fixture = EscrowFixtureBuilder::new().funded().build();
@@ -28,14 +79,20 @@ fn test_active_balance() {
     let client = &fixture.client;
     let contract_id = fixture.escrow_id;
 
-    // Do NOT release milestone, so status is Funded.
+    // Do NOT release the milestone, so the contract is still Funded.
     let res = escrow.try_finalize_contract(&contract_id, client);
     assert_eq!(
         res.err().unwrap().unwrap(),
         Error::InvalidStatusTransition.into()
     );
+
+    // No record may be written for a rejected transition.
+    assert!(escrow.get_finalization_record(&contract_id).is_none());
 }
 
+/// A contract whose sttatus is not Completed (e.g. disputed or
+/// pending) must reject finalization with `InvalidStatusTransition`
+/// and must not mutate the finalization record.
 #[test]
 fn test_active_dispute() {
     let fixture = EscrowFixtureBuilder::new().funded().build();
@@ -49,8 +106,12 @@ fn test_active_dispute() {
         res.err().unwrap().unwrap(),
         Error::InvalidStatusTransition.into()
     );
+    assert!(escrow.get_finalization_record(&contract_id).is_none());
 }
 
+/// A second finalization attempt on an already-finalized contract
+/// must fail with `AlreadyFinalized`, must not mutate the existing
+/// record, and must not emit any new events.
 #[test]
 fn test_repeat_finalization() {
     let fixture = EscrowFixtureBuilder::new().funded().completed().build();
@@ -66,6 +127,9 @@ fn test_repeat_finalization() {
     assert_eq!(res.err().unwrap().unwrap(), Error::AlreadyFinalized.into());
 }
 
+/// A concurrent/second finalizer (the freelancer here) must be
+/// rejected with `AlreadyFinalized` without overwriting the first
+/// finalizer's record or emitting duplicate events.
 #[test]
 fn test_concurrent_finalization() {
     let fixture = EscrowFixtureBuilder::new().funded().completed().build();
@@ -76,6 +140,7 @@ fn test_concurrent_finalization() {
 
     // First finalizer wins
     assert!(escrow.finalize_contract(&contract_id, client));
+    let winning_record = escrow.get_finalization_record(&contract_id).unwrap();
 
     // Concurrent/second finalizer is rejected with AlreadyFinalized
     let res = escrow.try_finalize_contract(&contract_id, freelancer);
