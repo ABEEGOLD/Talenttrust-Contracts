@@ -81,7 +81,7 @@ pub fn require_positive_amount(env: &Env, amount: i128) {
 
 // ── Participant identity ──────────────────────────────────────────────────────
 
-/// Panics with [`Error::InvalidParticipants`] if `client == freelancer`.
+/// Panics with [`Error::InvalidParticipant`] if `client == freelancer`.
 ///
 /// An escrow between identical addresses is a no-op and can only serve as a
 /// vector for protocol-fee extraction against a single party.
@@ -91,7 +91,7 @@ pub fn require_positive_amount(env: &Env, amount: i128) {
 /// - distinct addresses → accepted
 pub fn require_valid_participants(env: &Env, client: &Address, freelancer: &Address) {
     if client == freelancer {
-        env.panic_with_error(Error::InvalidParticipants);
+        env.panic_with_error(Error::InvalidParticipant);
     }
 }
 
@@ -190,7 +190,7 @@ pub fn require_milestone_amounts_valid(env: &Env, milestones: &Vec<i128>, max_to
             None => env.panic_with_error(Error::PotentialOverflow),
         }
         if total > max_total {
-            env.panic_with_error(Error::EscrowCapExceeded);
+            env.panic_with_error(Error::InvalidMilestoneAmount);
         }
     }
 }
@@ -279,7 +279,7 @@ pub fn require_valid_status_for_release(env: &Env, status: ContractStatus) {
 /// - `Completed` / `Refunded` / `Disputed` / `PartiallyFunded` after release → rejected
 pub fn require_valid_status_for_cancel(env: &Env, status: ContractStatus) {
     if status == ContractStatus::Cancelled {
-        env.panic_with_error(Error::AlreadyCancelled);
+        env.panic_with_error(Error::ContractCancelled);
     }
     if status != ContractStatus::Created && status != ContractStatus::Funded {
         env.panic_with_error(Error::InvalidStatusTransition);
@@ -627,7 +627,7 @@ pub fn require_contract_completed(env: &Env, status: ContractStatus) {
     }
 }
 
-/// Panics with [`Error::SelfRating`] if client and freelancer are the same
+/// Panics with [`Error::RoleOverlap`] if client and freelancer are the same
 /// address.
 ///
 /// # Boundary
@@ -635,7 +635,7 @@ pub fn require_contract_completed(env: &Env, status: ContractStatus) {
 /// - `client == freelancer` → rejected
 pub fn require_no_self_rating(env: &Env, client: &Address, freelancer: &Address) {
     if client == freelancer {
-        env.panic_with_error(Error::SelfRating);
+        env.panic_with_error(Error::RoleOverlap);
     }
 }
 

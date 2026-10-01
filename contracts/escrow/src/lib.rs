@@ -110,12 +110,32 @@ pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
 pub use constants::PAGE_CEILING;
-pub use contracts::{
-    MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
-    DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-    MAINNET_PROTOCOL_VERSION, MAX_MAX_ARBITERS, MAX_MAX_BATCH_SETTLEMENT, MAX_MAX_MILESTONES,
-    MIN_MAX_ARBITERS, MIN_MAX_BATCH_SETTLEMENT, MIN_MAX_ESCROW_STROOPS, MIN_MAX_MILESTONES,
-};
+// Constants previously re-exported from the contracts module (now a validation-only module).
+// Defined inline here for public API compatibility.
+pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+pub const MIN_MAX_ARBITERS: u32 = 1;
+pub const MAX_MAX_ARBITERS: u32 = 10;
+pub const MAX_MAX_MILESTONES: u32 = 100;
+pub const MIN_MAX_MILESTONES: u32 = 1;
+pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
+pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
+
+/// Deployment readiness snapshot returned by `get_mainnet_readiness_info`.
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MainnetReadinessInfo {
+    pub initialized: bool,
+    pub governed_params_set: bool,
+    pub emergency_controls_enabled: bool,
+    pub caps_set: bool,
+    pub protocol_version: u32,
+    pub max_escrow_total_stroops: i128,
+}
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use dispute::DisputeInfo;
@@ -1956,7 +1976,11 @@ impl Escrow {
     // â”€â”€ Cancel contract â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
-        let checklist = Self::load_checklist(&env);
+        let checklist: ReadinessChecklist = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReadinessChecklist)
+            .unwrap_or_default();
         MainnetReadinessInfo {
             initialized: checklist.initialized,
             governed_params_set: checklist.governed_params_set,
@@ -1998,7 +2022,10 @@ impl Escrow {
 
     /// Returns the current max escrow stroops limit (or the default if not set).
     pub fn get_max_escrow_stroops(env: Env) -> i128 {
-        Self::effective_max_escrow_stroops(&env)
+        env.storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::MaxEscrowStroops)
+            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
     }
 
     pub fn set_max_arbiters(env: Env, max_arbiters: u32) -> bool {
