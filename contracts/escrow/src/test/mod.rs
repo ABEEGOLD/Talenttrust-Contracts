@@ -374,11 +374,6 @@ pub fn total_milestone_amount() -> i128 {
     MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
 }
 
-/// Alias used by tests that import `total_milestones` directly.
-pub fn total_milestones() -> i128 {
-    total_milestone_amount()
-}
-
 /// Generate a fresh (client, freelancer) address pair for a test.
 pub fn generated_participants(env: &Env) -> (Address, Address) {
     (Address::generate(env), Address::generate(env))
