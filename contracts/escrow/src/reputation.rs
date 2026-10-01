@@ -125,8 +125,7 @@ pubc(crate) fn issue_reputation(
         .storage()
         .persistent()
         .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound));
-    ttl::extend_contract_ttl(env, contract_id);
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
     if caller != contract.client {
         env.panic_with_error(Error::UnauthorizedRole);
@@ -171,9 +170,18 @@ pubc(crate) fn issue_reputation(
         env.panic_with_error(Error::NotCompleted);
     }
 
+    let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    if pending <= 0 {
+        env.panic_with_error(Error::NotCompleted);
+    }
+    let new_pending = pending
+        .checked_sub(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
     caller.require_auth();
 
-    // Effects: mark contract as issued and decrement pending credit.
+    ttl::extend_contract_ttl(env, contract_id);
     contract.reputation_issued = true;
     env.storage()
         .persistent()
@@ -187,9 +195,6 @@ pubc(crate) fn issue_reputation(
         ttl::PERSISTENT_TTL_LEGGERS,
     );
 
-    let new_pending = pending
-        .checked_sub(1)
-        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
     env.storage().persistent().set(&pending_key, &new_pending);
 
     // Aggregate reputation update.
