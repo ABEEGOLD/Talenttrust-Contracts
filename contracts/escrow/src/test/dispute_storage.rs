@@ -1,1 +1,516 @@
-I2AhY2ZnKHRlc3QpXQoKLy8vIFRlc3RzIGZvciB2ZXJzaW9uZWQgZGlzcHV0ZS1zdG9yYWdlIG1pZ3JhdGlvbiAoaXNzdWUgIzEwMTcpLgoKLy8vCi8vLyBDb3ZlcnM6Ci8vLyAtIHYwIOKGkiB2MSBtaWdyYXRlLW9uLXJlYWQgd2l0aCBmaWVsZCBwcmVzZXJ2YXRpb24KLy8vIC0gY3VycmVudC12ZXJzaW9uIG5vLW9wCi8vLyAtIGxlZ2FjeSBzdGF0dXMtb25seSBkaXNwdXRlZCBjb250cmFjdHMgc3ludGhlc2l6aW5nIHYxIG1ldGFkYXRhCi8vLyAtIHJhaXNlL3Jlc29sdmUgd2lyaW5nIHRocm91Z2ggdGhlIHZlcnNpb25lZCBwYXRoCgovLy8gRGV0ZXJtaW5pc20gbm90ZXM6Ci8vLyBUaGUgZGlzcHV0ZSBzdG9yYWdlIGxheWVyIG11c3QgYmUgZGV0ZXJtaW5pc3RpYyBmb3IgZXZlcnkgcmVhZC9yZXRyeToKLy8vIC0gTWlncmF0aW9uIGlzIGlkZW1wb3RlbnQ6IGEgc2Vjb25kIGxvYWQgb2YgYSB2MSByZWNvcmQgbXVzdCBub3QKLy8vICAgcmUtd3JpdGUgb3IgcmUtc3RhbXAgYW55dGhpbmcuCi8vLyAtIE1pZ3JhdGlvbiBpcyBhdG9taWMgZnJvbSB0aGUgY2FsbGVyJ3MgcGVyc3BlY3RpdmU6IGVpdGhlciB0aGUKLy8vICAgcGVyc2lzdGVkIHYxIHBheWxvYWQgKyB2ZXJzaW9uIG1hcmtlciBhcmUgdmlzaWJsZSwgb3IgdGhlIG9yaWdpbmFsCi8vLyAgIHYwIHBheWxvYWQgaXMgc3RpbGwgdmlzaWJsZS4gTm8gcGFydGlhbCBzdGF0ZSBpcyBvYnNlcnZhYmxlLgovLy8gLSBVbnN1cHBvcnRlZCBmdXR1cmUgdmVyc2lvbnMgZmFpbCBjbG9zZWQgYW5kIGRvIG5vdCBjb3JydXB0IHN0YXRlLgoKdXNlIGNyYXRlOjpkaXNwdXRlIHsKICAgIGdldF9kaXNwdXRlX3N0b3JhZ2VfdmVyc2lvbiwgbG9hZF9kaXNwdXRlX21ldGFkYXRhLCBtaWdyYXRlX2Rpc3B1dGVfbWV0YWRhdGFfdjBfdG9fdjEsCiAgICBzdG9yZV9kaXNwdXRlX21ldGFkYXRhLAp9Owp1c2UgY3JhdGU6OnsKICAgIHR5cGVzOjpEYXRhS2V5LCBDb250cmFjdCwgQ29udHJhY3RTdGF0dXMsIERpc3B1dGVNZXRhZGF0YSwgRGlzcHV0ZU1ldGFkYXRhVjAsCiAgICBEaXNwdXRlUmVzb2x1dGlvbiwgRXNjcm93RXJyb3IsIERJU1BVVEVfU1RPUkFHRV9WRVJTSU9OLAoufTsKdXNlIHNvcm9iYW5fc2RrOjp7dGVzdHV0aWxzOjpBZGRyZXNzIGFzIF8sIEFkZHJlc3MsIEJ5dGVzTiwgRW52fTsKCnVzZSBzdXBlcjo6e2Fzc2VydF9jb250cmFjdF9lcnJvciwgRXNjcm93Rml4dHVyZX07CgpmbiBmdW5kZWRfZml4dHVyZV93aXRoX2FyYml0ZXIoKSAtPiBFc2Nyb3dGaXh0dXJlIHsKICAgIGxldCBtdXQgYnVpbGRlciA9IEVzY3Jvd0ZpeHR1cmU6OmJ1aWxkZXIoKTsKICAgIGxldCBjbGllbnQgPSBBZGRyZXNzOjpnZW5lcmF0ZShidWlsZGVyLmVudigpKTsKICAgIGxldCBmcmVlbGFuY2VyID0gQWRkcmVzczo6Z2VuZXJhdGUoYnVpbGRlci5lbnYoKSk7CiAgICBsZXQgYXJiaXRlciA9IEFkZHJlc3M6OmdlbmVyYXRlKGJ1aWxkZXIuZW52KCkpOwogICAgYnVpbGRlcgogICAgICAgIC53aXRoX3BhcnRpY2lwYW50cyhjbGllbnQsIGZyZWVsYW5jZXIsIFNvbWUoYXJiaXRlcikpCiAgICAgICAgLmZ1bmRlZCgpCiAgICAgICAgLmJ1aWxkKCkKfQoKLy8vIFB1cmUgaGVscGVyOiB2MCDihpIgdjEgY29waWVzIGFsbCBmaWVsZHMgYW5kIHN0YW1wcyB0aGUgY3VycmVudCBzY2hlbWEgdmVyc2lvbi4KI1t0ZXN0XQpmbiBtaWdyYXRlX3YwX3RvX3YxX3ByZXNlcnZlc19maWVsZHMoKSB7CiAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICBsZXQgcmFpc2VyID0gQWRkcmVzczo6Z2VuZXJhdGUoJmVudik7CiAgICBsZXQgaGFzaCA9IEJ5dGVzTjo6ZnJvbV9hcnJheSgmZW52LCAmWzd1ODsgMzJdKTsKICAgIGxldCB2MCA9IERpc3B1dGVNZXRhZGF0YVYwIHsKICAgICAgICByYWlzZWRfYnk6IHJhaXNlci5jbG9uZSgpLAogICAgICAgIHJlYXNvbl9oYXNoOiBoYXNoLmNsb25lKCksCiAgICAgICAgcmFpc2VkX2F0OiA0MiwKICAgIH07CgogICAgbGV0IHYxID0gbWlncmF0ZV9kaXNwdXRlX21ldGFkYXRhX3YwX3RvX3YxKHYwKTsKICAgIGFzc2VydF9lcSh2MS5zY2hlbWFfdmVyc2lvbiwgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04pOwogICAgYXNzZXJ0X2VxKHYxLnJhaXNlZF9ieSwgcmFpc2VyKTsKICAgIGFzc2VydF9lcSh2MS5yZWFzb25faGFzaCwgaGFzaCk7CiAgICBhc3NlcnRfZXEodjEucmFpc2VkX2F0LCA0Mik7Cn0KCi8vLyBJbmplY3QgYSB2MCByZWNvcmQgYW5kIGNvbmZpcm0gbG9hZCBtaWdyYXRlcyArIHJld3JpdGVzIGFzIHYxIHdpdGggZGF0YSBwcmVzZXJ2ZWQuCi8vLyBBbHNvIGFzc2VydHMgdGhlIG1pZ3JhdGlvbiBpcyBpZGVtcG90ZW50OiBhIHNlY29uZCByZWFkIG11c3Qgbm90Ci8vLyBjaGFuZ2UgdGhlIHBlcnNpc3RlZCBieXRlcy4KI1t0ZXN0XQpmbiBvbGRfdmVyc2lvbl9taWdyYXRlc19vbl9yZWFkX2FuZF9wcmVzZXJ2ZXNfZGF0YSgpIHsKICAgIGxldCBmaXh0dXJlID0gZnVuZGVkX2ZpeHR1cmVfd2l0aF9hcmJpdGVyKCk7CiAgICBsZXQgZW52ID0gJmZpeHR1cmUuZW52OwogICAgbGV0IGNsaWVudCA9IGZpeHR1cmUuZXNjcm93KCk7CiAgICBsZXQgY2xpZW50X2FkZHIgPSBmaXh0dXJlLmNsaWVudC5jbG9uZSgpOwogICAgbGV0IGlkID0gZml4dHVyZS5lc2Nyb3dfaWQ7CgogICAgLy8gTWFyayBjb250cmFjdCBkaXNwdXRlZCAobGVnYWN5IHBhdGgpIGFuZCBpbmplY3QgYSB2MCBtZXRhZGF0YSByZWNvcmQuCiAgICBsZXQgcmFpc2VyID0gY2xpZW50X2FkZHIuY2xvbmUoKTsKICAgIGxldCBoYXNoID0gQnl0ZXNOOjpmcm9tX2FycmF5KGVudiwgJls5dTg7IDMyXSk7CiAgICBsZXQgcmFpc2VkX2F0ID0gOTl1NjQ7CiAgICBlbnYuYXNfY29udHJhY3QoJmNsaWVudC5hZGRyZXNzLCB8fCB7CiAgICAgICAgbGV0IGtleSA9IERhdGFLZXk6OkNvbnRyYWN0KGlkKTsKICAgICAgICBsZXQgbXV0IGNvbnRyYWN0OiBDb250cmFjdCA9IGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLmdldCgma2V5KS51bndyYXAoKTsKICAgICAgICBjb250cmFjdC5zdGF0dXMgPSBDb250cmFjdFN0YXR1czo6RGlzcHV0ZWQ7CiAgICAgICAgZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuc2V0KCZrZXksICZjb250cmFjdCk7CgogICAgICAgIGxldCB2MCA9IERpc3B1dGVNZXRhZGF0YVYwIHsKICAgICAgICAgICAgcmFpc2VkX2J5OiByYWlzZXIuY2xvbmUoKSwKICAgICAgICAgICAgcmVhc29uX2hhc2g6IGhhc2guY2xvbmUoKSwKICAgICAgICAgICAgcmFpc2VkX2F0LAogICAgICAgIH07CiAgICAgICAgZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuc2V0KCZEYXRhS2V5OjpEaXNwdXRlKGlkKSwgJnYwKTsKICAgICAgICAvLyBFeHBsaWNpdCBsZWdhY3kgbWFya2VyIChtaXNzaW5nIHdvdWxkIGFsc28gYmUgdHJlYXRlZCBhcyAwKS4KICAgICAgICBlbnYuc3RvcmFnZSgpCiAgICAgICAgICAgIC5wZXJzaXN0ZW50KCkKICAgICAgICAgICAgLnNldCgmRGF0YUtleTo6RGlzcHV0ZVN0b3JhZ2VWZXJzaW9uKGlkKSwgJjB1MzIpOwogICAgfSk7CgogICAgYXNzZXJ0X2VxKGNsaWVudC5nZXRfZGlzcHV0ZV9zdG9yYWdlX3ZlcnNpb24oJmlkKSwgMCk7CgogICAgbGV0IG1pZ3JhdGVkOiBEaXNwdXRlTWV0YWRhdGEgPSBjbGllbnQuZ2V0X2Rpc3B1dGUoJmlkKTsKICAgIGFzc2VydF9lcShtaWdyYXRlZC5zY2hlbWFfdmVyc2lvbiwgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04pOwogICAgYXNzZXJ0X2VxKG1pZ3JhdGVkLnJhaXNlZF9ieSwgcmFpc2VyKTsKICAgIGFzc2VydF9lcShtaWdyYXRlZC5yZWFzb25faGFzaCwgaGFzaCk7CiAgICBhc3NlcnRfZXEobWlncmF0ZWQucmFpc2VkX2F0LCByYWlzZWRfYXQpOwoKICAgIC8vIFJld3JpdGUgcGVyc2lzdGVkIHRoZSBjdXJyZW50IHZlcnNpb24gbWFya2VyIGFuZCB2MSBwYXlsb2FkLgogICAgYXNzZXJ0X2VxKAogICAgICAgIGNsaWVudC5nZXRfZGlzcHV0ZV9zdG9yYWdlX3ZlcnNpb24oJmlkKSwKICAgICAgICBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTgogICAgKTsKICAgIGVudi5hc19jb250cmFjdCgmY2xpZW50LmFkZHJlc3MsIHx8IHsKICAgICAgICBsZXQgc3RvcmVkOiBEaXNwdXRlTWV0YWRhdGEgPSBlbnYKICAgICAgICAgICAgLnN0b3JhZ2UoKQogICAgICAgICAgICAucGVyc2lzdGVudCgpCiAgICAgICAgICAgIC5nZXQoJkRhdGFLZXk6OkRpc3B1dGUoaWQpKQogICAgICAgICAgICAudW53cmFwKCk7CiAgICAgICAgYXNzZXJ0X2VxKHN0b3JlZCwgbWlncmF0ZWQpOwogICAgICAgIGFzc2VydF9lcSgKICAgICAgICAgICAgZ2V0X2Rpc3B1dGVfc3RvcmFnZV92ZXJzaW9uKGVudiwgaWQpLAogICAgICAgICAgICBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTgogICAgICAgICk7CiAgICB9KTsKCiAgICAvLyBJZGVtcG90ZW5jeTogYSBzZWNvbmQgbG9hZCBtdXN0IG5vdCBjaGFuZ2UgdGhlIHBlcnNpc3RlZCBieXRlcy4KICAgIGxldCBzZWNvbmQ6IERpc3B1dGVNZXRhZGF0YSA9IGNsaWVudC5nZXRfZGlzcHV0ZSgmaWQpOwogICAgYXNzZXJ0X2VxKHNlY29uZCwgbWlncmF0ZWQpOwogICAgYXNzZXJ0X2VxKAogICAgICAgIGNsaWVudC5nZXRfZGlzcHV0ZV9zdG9yYWdlX3ZlcnNpb24oJmlkKSwKICAgICAgICBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTgogICAgKTsKfQoKLy8vIFJlYWRpbmcgYW4gYWxyZWFkeS1jdXJyZW50IHJlY29yZCBpcyBhIG5vLW9wICh2ZXJzaW9uIGFuZCBwYXlsb2FkIHVuY2hhbmdlZCkuCiNb dGVzdF0KZm4gY3VycmVudF92ZXJzaW9uX2xvYWRfaXNfbm9vcCgpIHsKICAgIGxldCBmaXh0dXJlID0gZnVuZGVkX2ZpeHR1cmVfd2l0aF9hcmJpdGVyKCk7CiAgICBsZXQgZW52ID0gJmZpeHR1cmUuZW52OwogICAgbGV0IGNsaWVudCA9IGZpeHR1cmUuZXNjcm93KCk7CiAgICBsZXQgY2xpZW50X2FkZHIgPSBmaXh0dXJlLmNsaWVudC5jbG9uZSgpOwogICAgbGV0IGlkID0gZml4dHVyZS5lc2Nyb3dfaWQ7CgogICAgbGV0IGhhc2ggPSBCeXRlc046OmZyb21fYXJyYXkoZW52LCAmWzN1ODsgMzJdKTsKICAgIGxldCBvcmlnaW5hbCA9IERpc3B1dGVNZXRhZGF0YSB7CiAgICAgICAgc2NoZW1hX3ZlcnNpb246IERJU1BVVEVfU1RPUkFHRV9WRVJTSU9OLAogICAgICAgIHJhaXNlZF9ieTogY2xpZW50X2FkZHIuY2xvbmUoKSwKICAgICAgICByZWFzb25faGFzaDogaGFzaC5jbG9uZSgpLAogICAgICAgIHJhaXNlZF9hdDogMTIzLAogICAgfTsKCiAgICBlbnYuYXNfY29udHJhY3QoJmNsaWVudC5hZGRyZXNzLCB8fCB7CiAgICAgICAgbGV0IGtleSA9IERhdGFLZXk6OkNvbnRyYWN0KGlkKTsKICAgICAgICBsZXQgbXV0IGNvbnRyYWN0OiBDb250cmFjdCA9IGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLmdldCgma2V5KS51bndyYXAoKTsKICAgICAgICBjb250cmFjdC5zdGF0dXMgPSBDb250cmFjdFN0YXR1czo6RGlzcHV0ZWQ7CiAgICAgICAgZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuc2V0KCZrZXksICZjb250cmFjdCk7CiAgICAgICAgc3RvcmVfZGlzcHV0ZV9tZXRhZGF0YShlbnYsIGlkLCAmb3JpZ2luYWwpOwogICAgfSk7CgogICAgbGV0IGJlZm9yZV92ZXJzaW9uID0gY2xpZW50LmdldF9kaXNwdXRlX3N0b3JhZ2VfdmVyc2lvbigmaWQpOwogICAgbGV0IGxvYWRlZCA9IGNsaWVudC5nZXRfZGlzcHV0ZSgmaWQpOwogICAgbGV0IGFmdGVyX3ZlcnNpb24gPSBjbGllbnQuZ2V0X2Rpc3B1dGVfc3RvcmFnZV92ZXJzaW9uKCZpZCk7CgogICAgYXNzZXJ0X2VxKGJlZm9yZV92ZXJzaW9uLCBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTik7CiAgICBhc3NlcnRfZXEoYWZ0ZXJfdmVyc2lvbiwgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04pOwogICAgYXNzZXJ0X2VxKGxvYWRlZC5zY2hlbWFfdmVyc2lvbiwgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04pOwogICAgYXNzZXJ0X2VxKGxvYWRlZC5yYWlzZWRfYnksIGNsaWVudF9hZGRyKTsKICAgIGFzc2VydF9lcShsb2FkZWQucmVhc29uX2hhc2gsIGhhc2gpOwogICAgYXNzZXJ0X2VxKGxvYWRlZC5yYWlzZWRfYXQsIDEyMyk7Cn0KCi8vLyBTdGF0dXMtb25seSBkaXNwdXRlZCBjb250cmFjdHMgKG5vIG1ldGFkYXRhIGtleSkgc3ludGhlc2l6ZSBhIHYxIHJlY29yZCBvbiByZWFkLgovLy8gVGhlIHN5bnRoZXNpcyBpcyBkZXRlcm1pbmlzdGljIGFuZCBpZGVtcG90ZW50OiByZXBlYXRlZCByZWFkcyB5aWVsZCB0aGUKLy8vIHNhbWUgc3ludGhlc2l6ZWQgcGF5bG9hZC4KI1t0ZXN0XQpmbiBsZWdhY3lfc3RhdHVzX29ubHlfZGlzcHV0ZV9zeW50aGVzaXplc192MV9vbl9yZWFkKCkgewogICAgbGV0IGZpeHR1cmUgPSBmdW5kZWRfZml4dHVyZV93aXRoX2FyYml0ZXIoKTsKICAgIGxldCBlbnYgPSAmZml4dHVyZS5lbnY7CiAgICBsZXQgY2xpZW50ID0gZml4dHVyZS5lc2Nyb3coKTsKICAgIGxldCBjbGllbnRfYWRkciA9IGZpeHR1cmUuY2xpZW50LmNsb25lKCk7CiAgICBsZXQgaWQgPSBmaXh0dXJlLmVzY3Jvd19pZDsKCiAgICBlbnYuYXNfY29udHJhY3QoJmNsaWVudC5hZGRyZXNzLCB8fCB7CiAgICAgICAgbGV0IGtleSA9IERhdGFLZXk6OkNvbnRyYWN0KGlkKTsKICAgICAgICBsZXQgbXV0IGNvbnRyYWN0OiBDb250cmFjdCA9IGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLmdldCgma2V5KS51bndyYXAoKTsKICAgICAgICBjb250cmFjdC5zdGF0dXMgPSBDb250cmFjdFN0YXR1czo6RGlzcHV0ZWQ7CiAgICAgICAgZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuc2V0KCZrZXksICZjb250cmFjdCk7CiAgICAgICAgLy8gSW50ZW50aW9uYWxseSBubyBEaXNwdXRlIC8gRGlzcHV0ZVN0b3JhZ2VWZXJzaW9uIGtleXMuCiAgICB9KTsKCiAgICBhc3NlcnRfZXEoY2xpZW50LmdldF9kaXNwdXRlX3N0b3JhZ2VfdmVyc2lvbigmaWQpLCAwKTsKICAgIGxldCBtZXRhID0gY2xpZW50LmdldF9kaXNwdXRlKCZpZCk7CiAgICBhc3NlcnRfZXEobWV0YS5zY2hlbWFfdmVyc2lvbiwgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04pOwogICAgYXNzZXJ0X2VxKG1ldGEucmFpc2VkX2J5LCBjbGllbnRfYWRkcik7CiAgICBhc3NlcnRfZXEobWV0YS5yYWlzZWRfYXQsIDApOwogICAgYXNzZXJ0X2VxKAogICAgICAgIGNsaWVudC5nZXRfZGlzcHV0ZV9zdG9yYWdlX3ZlcnNpb24oJmlkKSwKICAgICAgICBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTgogICAgKTsKCiAgICAvLyBSZXBlYXRlZCByZWFkcyBhcmUgaWRlbXBvdGVudCBhbmQgcmV0dXJuIHRoZSBzYW1lIHN5bnRoZXNpemVkIHBheWxvYWQuCiAgICBsZXQgbWV0YV9hZ2FpbiA9IGNsaWVudC5nZXRfZGlzcHV0ZSgmaWQpOwogICAgYXNzZXJ0X2VxKG1ldGFfYWdhaW4sIG1ldGEpOwp9CgovLy8gcmFpc2VfZGlzcHV0ZSB3cml0ZXMgY3VycmVudC12ZXJzaW9uIG1ldGFkYXRhOyByZXNvbHZlIGNsZWFycyBpdC4KI1t0ZXN0XQpmbiByYWlzZV9wZXJzaXN0c19jdXJyZW50X3ZlcnNpb25fYW5kX3Jlc29sdmVfY2xlYXJzX21ldGFkYXRhKCkgewogICAgbGV0IGZpeHR1cmUgPSBmdW5kZWRfZml4dHVyZV93aXRoX2FyYml0ZXIoKTsKICAgIGxldCBhcmJpdGVyID0gZml4dHVyZS5hcmJpdGVyLmNsb25lKCkuZXhwZWN0KCJhcmJpdGVyIGNvbmZpZ3VyZWQiKTsKICAgIGxldCBjbGllbnQgPSBmaXh0dXJlLmVzY3JvdygpOwogICAgbGV0IGNsaWVudF9hZGRyID0gZml4dHVyZS5jbGllbnQuY2xvbmUoKTsKICAgIGxldCBpZCA9IGZpeHR1cmUuZXNjcm93X2lkOwoKICAgIGFzc2VydCEoY2xpZW50LnJhaXNlX2Rpc3B1dGUoJmlkLCAmY2xpZW50X2FkZHIpKTsKICAgIGFzc2VydF9lcSgKICAgICAgICBjbGllbnQuZ2V0X2Rpc3B1dGVfc3RvcmFnZV92ZXJzaW9uKCZpZCksCiAgICAgICAgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04KICAgICk7CgogICAgbGV0IG1ldGEgPSBjbGllbnQuZ2V0X2Rpc3B1dGUoJmlkKTsKICAgIGFzc2VydF9lcShtZXRhLnNjaGVtYV92ZXJzaW9uLCBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTik7CiAgICBhc3NlcnRfZXEobWV0YS5yYWlzZWRfYnksIGNsaWVudF9hZGRyKTsKCiAgICBhc3NlcnQhKGNsaWVudC5yZXNvbHZlX2Rpc3B1dGUoJmlkLCAmYXJiaXRlciwgJkRpc3B1dGVSZXNvbHV0aW9uOjpGdWxsUmVmdW5kKSk7CiAgICBhc3NlcnRfZXEoY2xpZW50LmdldF9kaXNwdXRlX3N0b3JhZ2VfdmVyc2lvbigmaWQpLCAwKTsKICAgIGFzc2VydF9jb250cmFjdF9lcnJvcihjbGllbnQudHJ5X2dldF9kaXNwdXRlKCZpZCksIEVzY3Jvd0Vycm9yOjpEaXNwdXRlTm90Rm91bmQpOwp9CgovLy8gVW5zdXBwb3J0ZWQgZnV0dXJlIHZlcnNpb25zIGZhaWwgY2xvc2VkLgovLy8gVGhlIGZhaWx1cmUgbXVzdCBub3QgbXV0YXRlIHRoZSBwZXJzaXN0ZWQgcGF5bG9hZCBvciB2ZXJzaW9uIG1hcmtlci4KI1t0ZXN0XQpmbiB1bnN1cHBvcnRlZF9mdXR1cmVfdmVyc2lvbl9pc19yZWplY3RlZCgpIHsKICAgIGxldCBmaXh0dXJlID0gZnVuZGVkX2ZpeHR1cmVfd2l0aF9hcmJpdGVyKCk7CiAgICBsZXQgZW52ID0gJmZpeHR1cmUuZW52OwogICAgbGV0IGNsaWVudCA9IGZpeHR1cmUuZXNjcm93KCk7CiAgICBsZXQgY2xpZW50X2FkZHIgPSBmaXh0dXJlLmNsaWVudC5jbG9uZSgpOwogICAgbGV0IGlkID0gZml4dHVyZS5lc2Nyb3dfaWQ7CiAgICBsZXQgZnV0dXJlX3ZlcnNpb24gPSBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTiArIDE7CgogICAgZW52LmFzX2NvbnRyYWN0KCZjbGllbnQuYWRkcmVzcywgfHwgewogICAgICAgIGxldCBrZXkgPSBEYXRhS2V5OjpDb250cmFjdChpZCk7CiAgICAgICAgbGV0IG11dCBjb250cmFjdDogQ29udHJhY3QgPSBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5nZXQoJmtleSkudW53cmFwKCk7CiAgICAgICAgY29udHJhY3Quc3RhdHVzID0gQ29udHJhY3RTdGF0dXM6OkRpc3B1dGVkOwogICAgICAgIGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLnNldCgma2V5LCAmY29udHJhY3QpOwoKICAgICAgICBsZXQgbWV0YSA9IERpc3B1dGVNZXRhZGF0YSB7CiAgICAgICAgICAgIHNjaGVtYV92ZXJzaW9uOiBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTiwKICAgICAgICAgICAgcmFpc2VkX2J5OiBjbGllbnRfYWRkci5jbG9uZSgpLAogICAgICAgICAgICByZWFzb25faGFzaDogQnl0ZXNOOjpmcm9tX2FycmF5KGVudiwgJlswdTg7IDMyXSksCiAgICAgICAgICAgIHJhaXNlZF9hdDogMSwKICAgICAgICB9OwogICAgICAgIGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLnNldCgmRGF0YUtleTo6RGlzcHV0ZShpZCksICZtZXRhKTsKICAgICAgICBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5zZXQoCiAgICAgICAgICAgICZEYXRhS2V5OjpEaXNwdXRlU3RvcmFnZVZlcnNpb24oaWQpLAogICAgICAgICAgICAmZnV0dXJlX3ZlcnNpb24sCiAgICAgICAgKTsKICAgIH0pOwoKICAgIGFzc2VydF9jb250cmFjdF9lcnJvcigKICAgICAgICBjbGllbnQudHJ5X2dldF9kaXNwdXRlKCZpZCksCiAgICAgICAgRXNjcm93RXJyb3I6OkludmFsaWRTdGF0ZSwKICAgICk7CgogICAgLy8gRmFpbC1jbG9zZWQgbXVzdCBub3QgbXV0YXRlIHBlcnNpc3RlZCBzdGF0ZS4KICAgIGVudi5hc19jb250cmFjdCgmY2xpZW50LmFkZHJlc3MsIHx8IHsKICAgICAgICBhc3NlcnRfZXEoCiAgICAgICAgICAgIGdldF9kaXNwdXRlX3N0b3JhZ2VfdmVyc2lvbihlbnYsIGlkKSwKICAgICAgICAgICAgZnV0dXJlX3ZlcnNpb24KICAgICAgICApOwogICAgICAgIGxldCBzdG9yZWQ6IERpc3B1dGVNZXRhZGF0YSA9IGVudgogICAgICAgICAgICAuc3RvcmFnZSgpCiAgICAgICAgICAgIC5wZXJzaXN0ZW50KCkKICAgICAgICAgICAgLmdldCgmRGF0YUtleTo6RGlzcHV0ZShpZCkpCiAgICAgICAgICAgIC51bndyYXAoKTsKICAgICAgICBhc3NlcnRfZXEoc3RvcmVkLnJhaXNlZF9hdCwgMSk7CiAgICB9KTsKfQoKLy8vIERpcmVjdCBoZWxwZXIgY292ZXJhZ2U6IGxvYWQgYWZ0ZXIgc3RvcmVfZGlzcHV0ZV9tZXRhZGF0YSBpcyBhIG5vLW9wIHBhdGguCiNb dGVzdF0KZm4gbG9hZF9kaXNwdXRlX21ldGFkYXRhX2hlbHBlcl9ub29wX2Zvcl9jdXJyZW50KCkgewogICAgbGV0IGZpeHR1cmUgPSBmdW5kZWRfZml4dHVyZV93aXRoX2FyYml0ZXIoKTsKICAgIGxldCBlbnYgPSAmZml4dHVyZS5lbnY7CiAgICBsZXQgY2xpZW50ID0gZml4dHVyZS5lc2Nyb3coKTsKICAgIGxldCBjbGllbnRfYWRkciA9IGZpeHR1cmUuY2xpZW50LmNsb25lKCk7CiAgICBsZXQgaWQgPSBmaXh0dXJlLmVzY3Jvd19pZDsKCiAgICBlbnYuYXNfY29udHJhY3QoJmNsaWVudC5hZGRyZXNzLCB8fCB7CiAgICAgICAgbGV0IG1ldGEgPSBEaXNwdXRlTWV0YWRhdGEgewogICAgICAgICAgICBzY2hlbWFfdmVyc2lvbjogRElTUFVURV9TVE9SQUdFX1ZFUlNJT04sCiAgICAgICAgICAgIHJhaXNlZF9ieTogY2xpZW50X2FkZHIuY2xvbmUoKSwKICAgICAgICAgICAgcmVhc29uX2hhc2g6IEJ5dGVzTjo6ZnJvbV9hcnJheShlbnYsICZbMXU4OyAzMl0pLAogICAgICAgICAgICByYWlzZWRfYXQ6IDcsCiAgICAgICAgfTsKICAgICAgICBzdG9yZV9kaXNwdXRlX21ldGFkYXRhKGVudiwgaWQsICZtZXRhKTsKICAgICAgICBsZXQgbG9hZGVkID0gbG9hZF9kaXNwdXRlX21ldGFkYXRhKGVudiwgaWQpOwogICAgICAgIGFzc2VydF9lcShsb2FkZWQucmFpc2VkX2F0LCA3KTsKICAgICAgICBhc3NlcnRfZXEobG9hZGVkLnNjaGVtYV92ZXJzaW9uLCBESVNQVVRFX1NUT1JBR0VfVkVSU0lPTik7CiAgICB9KTsKfQoKLy8vIFJlZ3Jlc3Npb246IGEgbWlncmF0aW9uIHRoYXQgaGFzIGFscmVhZHkgY29tcGxldGVkIG11c3Qgbm90IGJlIHJlLXJ1bi4KLy8vIFdlIGFzc2VydCB0aGUgcGVyc2lzdGVkIHYxIGJ5dGVzIGFyZSBieXRlLWlkZW50aWNhbCBhY3Jvc3MgbXVsdGlwbGUgcmVhZHMuCiNb dGVzdF0KZm4gbWlncmF0aW9uX2lzX2lkZW1wb3RlbnRfYWNyb3NzX3JlcGVhdGVkX3JlYWRzKCkgewogICAgbGV0IGZpeHR1cmUgPSBmdW5kZWRfZml4dHVyZV93aXRoX2FyYml0ZXIoKTsKICAgIGxldCBlbnYgPSAmZml4dHVyZS5lbnY7CiAgICBsZXQgY2xpZW50ID0gZml4dHVyZS5lc2Nyb3coKTsKICAgIGxldCBjbGllbnRfYWRkciA9IGZpeHR1cmUuY2xpZW50LmNsb25lKCk7CiAgICBsZXQgaWQgPSBmaXh0dXJlLmVzY3Jvd19pZDsKCiAgICBsZXQgaGFzaCA9IEJ5dGVzTjo6ZnJvbV9hcnJheShlbnYsICZbMTF1ODsgMzJdKTsKICAgIGVudi5hc19jb250cmFjdCgmY2xpZW50LmFkZHJlc3MsIHx8IHsKICAgICAgICBsZXQga2V5ID0gRGF0YUtleTo6Q29udHJhY3QoaWQpOwogICAgICAgIGxldCBtdXQgY29udHJhY3Q6IENvbnRyYWN0ID0gZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuZ2V0KCZrZXkpLnVud3JhcCgpOwogICAgICAgIGNvbnRyYWN0LnN0YXR1cyA9IENvbnRyYWN0U3RhdHVzOjpEaXNwdXRlZDsKICAgICAgICBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5zZXQoJmtleSwgJmNvbnRyYWN0KTsKCiAgICAgICAgbGV0IHYwID0gRGlzcHV0ZU1ldGFkYXRhVjAgewogICAgICAgICAgICByYWlzZWRfYnk6IGNsaWVudF9hZGRyLmNsb25lKCksCiAgICAgICAgICAgIHJlYXNvbl9oYXNoOiBoYXNoLmNsb25lKCksCiAgICAgICAgICAgIHJhaXNlZF9hdDogNTU1LAogICAgICAgIH07CiAgICAgICAgZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuc2V0KCZEYXRhS2V5OjpEaXNwdXRlKGlkKSwgJnYwKTsKICAgICAgICBlbnYuc3RvcmFnZSgpCiAgICAgICAgICAgIC5wZXJzaXN0ZW50KCkKICAgICAgICAgICAgLnNldCgmRGF0YUtleTo6RGlzcHV0ZVN0b3JhZ2VWZXJzaW9uKGlkKSwgJjB1MzIpOwogICAgfSk7CgogICAgbGV0IGZpcnN0ID0gY2xpZW50LmdldF9kaXNwdXRlKCZpZCk7CiAgICBsZXQgc2Vjb25kID0gY2xpZW50LmdldF9kaXNwdXRlKCZpZCk7CiAgICBsZXQgdGhpcmQgPSBjbGllbnQuZ2V0X2Rpc3B1dGUoJmlkKTsKCiAgICBhc3NlcnRfZXEoZmlyc3QsIHNlY29uZCk7CiAgICBhc3NlcnRfZXEoc2Vjb25kLCB0aGlyZCk7CiAgICBhc3NlcnRfZXEoZmlyc3QucmFpc2VkX2F0LCA1NTUpOwogICAgYXNzZXJ0X2VxKGZpcnN0LnJlYXNvbl9oYXNoLCBoYXNoKTsKICAgIGFzc2VydF9lcSgKICAgICAgICBjbGllbnQuZ2V0X2Rpc3B1dGVfc3RvcmFnZV92ZXJzaW9uKCZpZCksCiAgICAgICAgRElTUFVURV9TVE9SQUdFX1ZFUlNJT04KICAgICk7Cn0K
+#![cfg(test)]
+
+//! Tests for versioned dispute-storage migration (issue #1017).
+//!
+//! Covers:
+//! - v0 → v1 migrate-on-read with field preservation
+//! - current-version no-op
+//! - legacy status-only disputed contracts synthesizing v1 metadata
+//! - raise/resolve wiring through the versioned path
+//! - validation boundaries: invalid, duplicate, and boundary-case inputs
+
+use crate::dispute::{
+    get_dispute_storage_version, load_dispute_metadata, migrate_dispute_metadata_v0_to_v1,
+    store_dispute_metadata,
+};
+use crate::{
+    types::DataKey, Contract, ContractStatus, DisputeMetadata, DisputeMetadataV0,
+    DisputeResolution, EscrowError, DISPUTE_STORAGE_VERSION,
+};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+
+use super::{assert_contract_error, EscrowFixture};
+
+fn funded_fixture_with_arbiter() -> EscrowFixture {
+    let mut builder = EscrowFixture::builder();
+    let client = Address::generate(builder.env());
+    let freelancer = Address::generate(builder.env());
+    let arbiter = Address::generate(builder.env());
+    builder
+        .with_participants(client, freelancer, Some(arbiter))
+        .funded()
+        .build()
+}
+
+/// Pure helper: v0 → v1 copies all fields and stamps the current schema version.
+#[test]
+fn migrate_v0_to_v1_preserves_fields() {
+    let env = Env::default();
+    let raiser = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[7u8; 32]);
+    let v0 = DisputeMetadataV0 {
+        raised_by: raiser.clone(),
+        reason_hash: hash.clone(),
+        raised_at: 42,
+    };
+
+    let v1 = migrate_dispute_metadata_v0_to_v1(v0);
+    assert_eq!(v1.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(v1.raised_by, raiser);
+    assert_eq!(v1.reason_hash, hash);
+    assert_eq!(v1.raised_at, 42);
+}
+
+/// Inject a v0 record and confirm load migrates + rewrites as v1 with data preserved.
+#[test]
+fn old_version_migrates_on_read_and_preserves_data() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    // Mark contract disputed (legacy path) and inject a v0 metadata record.
+    let raiser = client_addr.clone();
+    let hash = BytesN::from_array(env, &[9u8; 32]);
+    let raised_at = 99u64;
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let v0 = DisputeMetadataV0 {
+            raised_by: raiser.clone(),
+            reason_hash: hash.clone(),
+            raised_at,
+        };
+        env.storage().persistent().set(&DataKey::Dispute(id), &v0);
+        // Explicit legacy marker (missing would also be treated as 0).
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeStorageVersion(id), &0u32);
+    });
+
+    assert_eq!(client.get_dispute_storage_version(&id), 0);
+
+    let migrated: DisputeMetadata = client.get_dispute(&id);
+    assert_eq!(migrated.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(migrated.raised_by, raiser);
+    assert_eq!(migrated.reason_hash, hash);
+    assert_eq!(migrated.raised_at, raised_at);
+
+    // Rewrite persisted the current version marker and v1 payload.
+    assert_eq!(
+        client.get_dispute_storage_version(&id),
+        DISPUTE_STORAGE_VERSION
+    );
+    env.as_contract(&client.address, || {
+        let stored: DisputeMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Dispute(id))
+            .unwrap();
+        assert_eq!(stored, migrated);
+        assert_eq!(
+            get_dispute_storage_version(env, id),
+            DISPUTE_STORAGE_VERSION
+        );
+    });
+}
+
+/// Reading an already-current record is a no-op (version and payload unchanged).
+#[test]
+fn current_version_load_is_noop() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    let hash = BytesN::from_array(env, &[3u8; 32]);
+    let original = DisputeMetadata {
+        schema_version: DISPUTE_STORAGE_VERSION,
+        raised_by: client_addr.clone(),
+        reason_hash: hash.clone(),
+        raised_at: 123,
+    };
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+        store_dispute_metadata(env, id, &original);
+    });
+
+    let before_version = client.get_dispute_storage_version(&id);
+    let loaded = client.get_dispute(&id);
+    let after_version = client.get_dispute_storage_version(&id);
+
+    assert_eq!(before_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(after_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(loaded.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(loaded.raised_by, client_addr);
+    assert_eq!(loaded.reason_hash, hash);
+    assert_eq!(loaded.raised_at, 123);
+}
+
+/// Status-only disputed contracts (no metadata key) synthesize a v1 record on read.
+#[test]
+fn legacy_status_only_dispute_synthesizes_v1_on_read() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+        // Intentionally no Dispute / DisputeStorageVersion keys.
+    });
+
+    assert_eq!(client.get_dispute_storage_version(&id), 0);
+    let meta = client.get_dispute(&id);
+    assert_eq!(meta.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(meta.raised_by, client_addr);
+    assert_eq!(meta.raised_at, 0);
+    assert_eq!(
+        client.get_dispute_storage_version(&id),
+        DISPUTE_STORAGE_VERSION
+    );
+}
+
+/// raise_dispute writes current-version metadata; resolve clears it.
+#[test]
+fn raise_persists_current_version_and_resolve_clears_metadata() {
+    let fixture = funded_fixture_with_arbiter();
+    let arbiter = fixture.arbiter.clone().expect("arbiter configured");
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    assert_eq!(
+        client.get_dispute_storage_version(&id),
+        DISPUTE_STORAGE_VERSION
+    );
+
+    let meta = client.get_dispute(&id);
+    assert_eq!(meta.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(meta.raised_by, client_addr);
+
+    assert!(client.resolve_dispute(&id, &arbiter, &DisputeResolution::FullRefund));
+    assert_eq!(client.get_dispute_storage_version(&id), 0);
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::DisputeNotFound);
+}
+
+/// Unsupported future versions fail closed.
+#[test]
+fn unsupported_future_version_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let meta = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: client_addr.clone(),
+            reason_hash: BytesN::from_array(env, &[0u8; 32]),
+            raised_at: 1,
+        };
+        env.storage().persistent().set(&DataKey::Dispute(id), &meta);
+        env.storage().persistent().set(
+            &DataKey::DisputeStorageVersion(id),
+            &(DISPUTE_STORAGE_VERSION + 1),
+        );
+    });
+
+    assert_contract_error(
+        client.try_get_dispute(&id),
+        EscrowError::InvalidState,
+    );
+}
+
+/// Direct helper coverage: load after store_dispute_metadata is a no-op path.
+#[test]
+fn load_dispute_metadata_helper_noop_for_current() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let meta = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: client_addr.clone(),
+            reason_hash: BytesN::from_array(env, &[1u8; 32]),
+            raised_at: 7,
+        };
+        store_dispute_metadata(env, id, &meta);
+        let loaded = load_dispute_metadata(env, id);
+        assert_eq!(loaded.raised_at, 7);
+        assert_eq!(loaded.schema_version, DISPUTE_STORAGE_VERSION);
+    });
+}
+
+/// Boundary: raised_at = 0 is a valid timestamp and must round-trip unchanged.
+#[test]
+fn boundary_raised_at_zero_round_trips() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let meta = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: client_addr.clone(),
+            reason_hash: BytesN::from_array(env, &[0u8; 32]),
+            raised_at: 0,
+        };
+        store_dispute_metadata(env, id, &meta);
+    });
+
+    let loaded = client.get_dispute(&id);
+    assert_eq!(loaded.raised_at, 0);
+    assert_eq!(loaded.raised_by, client_addr);
+    assert_eq!(loaded.schema_version, DISPUTE_STORAGE_VERSION);
+}
+
+/// Boundary: raised_at = u64::MAX must round-trip without truncation or overflow.
+#[test]
+fn boundary_raised_at_max_round_trips() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let meta = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: client_addr.clone(),
+            reason_hash: BytesN::from_array(env, &[0xffu8; 32]),
+            raised_at: u64::MAX,
+        };
+        store_dispute_metadata(env, id, &meta);
+    });
+
+    let loaded = client.get_dispute(&id);
+    assert_eq!(loaded.raised_at, u64::MAX);
+    assert_eq!(loaded.raised_by, client_addr);
+}
+
+/// Boundary: all-zero reason hash is a valid (non-empty) 32-byte value.
+#[test]
+fn boundary_zero_reason_hash_is_valid() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    let zero_hash = BytesN::from_array(env, &[0u8; 32]);
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let meta = DisputeMetadata {
+            schema_version: DISPUTE_STORAGE_VERSION,
+            raised_by: client_addr.clone(),
+            reason_hash: zero_hash.clone(),
+            raised_at: 1,
+        };
+        store_dispute_metadata(env, id, &meta);
+    });
+
+    let loaded = client.get_dispute(&id);
+    assert_eq!(loaded.reason_hash, zero_hash);
+}
+
+/// Rejection: reading dispute metadata for a non-existent contract id fails closed.
+#[test]
+fn unknown_contract_id_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let client = fixture.escrow();
+    let unknown_id = fixture.escrow_id + 1;
+
+    assert_contract_error(
+        client.try_get_dispute(&unknown_id),
+        EscrowError::DisputeNotFound,
+    );
+}
+
+/// Rejection: reading dispute metadata when the contract is not disputed fails closed.
+#[test]
+fn non_disputed_contract_get_dispute_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let client = fixture.escrow();
+    let id = fixture.escrow_id;
+
+    // Fixture is funded but not disputed.
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::DisputeNotFound);
+}
+
+/// Rejection: duplicate raise_dispute on an already-disputed contract fails closed
+/// and preserves the original metadata (no silent overwrite / data loss).
+#[test]
+fn duplicate_raise_dispute_is_rejected_and_preserves_metadata() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    let first = client.get_dispute(&id);
+
+    // Second raise must be rejected; state must remain unchanged.
+    let second = client.try_raise_dispute(&id, &client_addr);
+    assert!(second.is_err(), "duplicate raise_dispute must be rejected");
+
+    let after = client.get_dispute(&id);
+    assert_eq!(after.raised_by, first.raised_by);
+    assert_eq!(after.reason_hash, first.reason_hash);
+    assert_eq!(after.raised_at, first.raised_at);
+    assert_eq!(after.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(
+        client.get_dispute_storage_version(&id),
+        DISPUTE_STORAGE_VERSION
+    );
+
+    // Sanity: env still usable and storage intact.
+    env.as_contract(&client.address, || {
+        let stored: DisputeMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Dispute(id))
+            .unwrap();
+        assert_eq!(stored, after);
+    });
+}
+
+/// Rejection: resolve_dispute on a non-disputed contract fails closed.
+#[test]
+fn resolve_non_disputed_contract_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let arbiter = fixture.arbiter.clone().expect("arbiter configured");
+    let client = fixture.escrow();
+    let id = fixture.escrow_id;
+
+    assert_contract_error(
+        client.try_resolve_dispute(&id, &arbiter, &DisputeResolution::FullRefund),
+        EscrowError::DisputeNotFound,
+    );
+}
+
+/// Rejection: resolve_dispute by a non-arbiter caller fails closed and leaves
+/// dispute metadata intact (authorization invariant preserved).
+#[test]
+fn resolve_by_non_arbiter_is_rejected_and_preserves_metadata() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    assert!(client.raise_dispute(&id, &client_addr));
+    let before = client.get_dispute(&id);
+
+    let attacker = Address::generate(env);
+    let result = client.try_resolve_dispute(&id, &attacker, &DisputeResolution::FullRefund);
+    assert!(result.is_err(), "non-arbiter resolve must be rejected");
+
+    // Metadata and version must be untouched.
+    let after = client.get_dispute(&id);
+    assert_eq!(after, before);
+    assert_eq!(
+        client.get_dispute_storage_version(&id),
+        DISPUTE_STORAGE_VERSION
+    );
+}
+
+/// Regression: v0 migration with raised_at = 0 preserves the zero timestamp
+/// (guards against accidental `unwrap_or(default_nonzero)` style bugs).
+#[test]
+fn migrate_v0_with_zero_raised_at_preserves_zero() {
+    let env = Env::default();
+    let raiser = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[0u8; 32]);
+    let v0 = DisputeMetadataV0 {
+        raised_by: raiser.clone(),
+        reason_hash: hash.clone(),
+        raised_at: 0,
+    };
+
+    let v1 = migrate_dispute_metadata_v0_to_v1(v0);
+    assert_eq!(v1.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(v1.raised_at, 0);
+    assert_eq!(v1.raised_by, raiser);
+    assert_eq!(v1.reason_hash, hash);
+}
+
+/// Regression: v0 migration with raised_at = u64::MAX preserves the max value.
+#[test]
+fn migrate_v0_with_max_raised_at_preserves_max() {
+    let env = Env::default();
+    let raiser = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[0xaau8; 32]);
+    let v0 = DisputeMetadataV0 {
+        raised_by: raiser.clone(),
+        reason_hash: hash.clone(),
+        raised_at: u64::MAX,
+    };
+
+    let v1 = migrate_dispute_metadata_v0_to_v1(v0);
+    assert_eq!(v1.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq!(v1.raised_at, u64::MAX);
+    assert_eq!(v1.raised_by, raiser);
+    assert_eq!(v1.reason_hash, hash);
+}
+
+/// Rejection: a v0 payload paired with a future version marker must fail closed
+/// rather than silently migrating or overwriting unknown data.
+#[test]
+fn future_version_with_v0_payload_is_rejected() {
+    let fixture = funded_fixture_with_arbiter();
+    let env = &fixture.env;
+    let client = fixture.escrow();
+    let client_addr = fixture.client.clone();
+    let id = fixture.escrow_id;
+
+    env.as_contract(&client.address, || {
+        let key = DataKey::Contract(id);
+        let mut contract: Contract = env.storage().persistent().get(&key).unwrap();
+        contract.status = ContractStatus::Disputed;
+        env.storage().persistent().set(&key, &contract);
+
+        let v0 = DisputeMetadataV0 {
+            raised_by: client_addr.clone(),
+            reason_hash: BytesN::from_array(env, &[1u8; 32]),
+            raised_at: 5,
+        };
+        env.storage().persistent().set(&DataKey::Dispute(id), &v0);
+        env.storage().persistent().set(
+            &DataKey::DisputeStorageVersion(id),
+            &(DISPUTE_STORAGE_VERSION + 1),
+        );
+    });
+
+    assert_contract_error(client.try_get_dispute(&id), EscrowError::InvalidState);
+}
