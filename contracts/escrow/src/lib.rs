@@ -115,11 +115,8 @@ pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::AmountBoundary;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
-pub use amount_validation::MIN_POSITIVE_AMOUNT;
-pub use constants::PAGE_CEILING;
 pub use constants::{
-    DEFAULT_MAX_BATCH_SETTLEMENT, MAX_BATCH_MILESTONES, MAX_BATCH_SETTLEMENT, MAX_FEE_BPS,
-    MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
+    MAX_COMMENT_BYTES, MAX_RATING, MIN_RATING, PAGE_CEILING, REPUTATION_CREDIT_INCREMENT, SCALE,
 };
 pub use contracts::{
     MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
