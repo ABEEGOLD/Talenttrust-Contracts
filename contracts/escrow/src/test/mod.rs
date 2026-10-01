@@ -2,6 +2,7 @@
 
 pub use soroban_sdk::testutils::Events as _;
 pub use soroban_sdk::testutils::Address as _;
+pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
@@ -60,7 +61,7 @@ mod simulate_release;
 mod simulate_validation_boundaries;
 mod token_scale;
 mod ttl_tests;
-mod milestone_concurrency;
+mod proptest;
 
 // --- Shared constants ---
 

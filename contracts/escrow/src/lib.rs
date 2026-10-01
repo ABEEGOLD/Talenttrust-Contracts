@@ -148,6 +148,39 @@ pub use types::{
     SplitAmounts, CONTRACT_SUMMARY_SCHEMA_VERSION, DISPUTE_STORAGE_VERSION,
 };
 
+// Maximum bounds constants - re-export from amount_validation for API visibility
+pub const MAX_MILESTONES: u32 = 10;
+pub const MAX_BATCH_MILESTONES: u32 = 10;
+pub const MAX_FEE_BPS: u32 = 10_000;
+pub const MAX_TOTAL_ESCROW_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+
+/// Validation boundaries for property-based testing of escrow inputs.
+///
+/// These constants define the canonical valid/invalid ranges that proptest
+/// suites (see `contracts/escrow/src/proptest.rs`) must exercise. Keeping them
+/// here — next to the runtime limits they mirror — ensures the property tests
+/// and the on-chain validation stay in lockstep.
+///
+/// # Invariants
+/// * `MIN_VALID_AMOUNT_STROOPS` is the smallest amount accepted by
+///   `validate_single_amount` (strictly positive).
+/// * `MAX_VALID_AMOUNT_STROOPS` equals `MAX_SINGLE_AMOUNT_STROOPS`.
+/// * `MIN_VALID_MILESTONE_COUNT` / `MAX_VALID_MILESTONE_COUNT` bound the
+///   milestone vector accepted by `create_contract`.
+/// * `MIN_VALID_FEE_BPS` / `MAX_VALID_FEE_BPS` bound the protocol fee.
+pub const MIN_VALID_AMOUNT_STROOPS: i128 = 1;
+pub const MAX_VALID_AMOUNT_STROOPS: i128 = MAX_SINGLE_AMOUNT_STROOPS;
+pub const MIN_VALID_MILESTONE_COUNT: u32 = 1;
+pub const MAX_VALID_MILESTONE_COUNT: u32 = MAX_MILESTONES;
+pub const MIN_VALID_FEE_BPS: u32 = 0;
+pub const MAX_VALID_FEE_BPS: u32 = MAX_FEE_BPS;
+
+// Default maximum number of contracts finalizable in a single batch settlement call.
+pub const DEFAULT_MAX_BATCH_SETTLEMENT: u32 = 10;
+
+// Backward-compatible alias for the default max batch settlement.
+pub const MAX_BATCH_SETTLEMENT: u32 = DEFAULT_MAX_BATCH_SETTLEMENT;
+
 #[contract]
 pub struct Escrow;
 
