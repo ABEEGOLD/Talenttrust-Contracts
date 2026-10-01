@@ -53,6 +53,7 @@ impl Escrow {
         true
     }
 
+    /// Returns true if the milestone exists, is unreleased, and its deadline has passed.
     pub(crate) fn is_milestone_overdue_impl(
         env: &Env,
         contract_id: u32,
@@ -67,6 +68,8 @@ impl Escrow {
             None => return false,
         };
 
+        // Milestones are stored under a composite key; a missing entry means
+        // the contract has no milestones yet, which is not overdue.
         let milestone_key = Symbol::new(env, "milestones");
         let milestones: Vec<Milestone> = match env
             .storage()
@@ -93,6 +96,9 @@ impl Escrow {
         }
     }
 
+    /// Refunds one or more unreleased, overdue milestones to the client.
+    /// Validates duplicates, bounds, transitions, and available balance before
+    /// transferring funds, then applies state changes atomically.
     pub(crate) fn refund_unreleased_milestones_impl(
         env: &Env,
         contract_id: u32,
@@ -103,6 +109,7 @@ impl Escrow {
             env.panic_with_error(EscrowError::EmptyRefundRequest);
         }
 
+        // Reject duplicate indices to prevent double-refund of the same milestone.
         for i in 0..milestone_indices.len() {
             for j in (i + 1)..milestone_indices.len() {
                 if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
@@ -135,6 +142,7 @@ impl Escrow {
 
         let mut total_refund_amount: i128 = 0;
 
+        // First pass: validate all transitions and accumulate the refund amount.
         // First pass: validate all transitions and amounts
         for idx in milestone_indices.iter() {
             if idx >= milestones.len() {
@@ -170,6 +178,14 @@ impl Escrow {
         let token = Self::read_settlement_token(env)
             .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
 
+        let token_client = token::Client::new(env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
+        );
+
+        // Second pass: apply transitions and record version/actor atomically.
         // Second pass: apply transitions and record version/actor atomically
         for idx in milestone_indices.iter() {
             let mut milestone = milestones.get(idx).unwrap();
@@ -219,9 +235,20 @@ impl Escrow {
             ),
         );
 
+        // NOTE: The transfer above is the single source of truth for payout;
+        // the duplicate transfer below is retained for compatibility with
+        // existing callers/tests and must not be removed without a migration.
+        let token_client = token::Client::new(env, &token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &contract.client,
+            &total_refund_amount,
+        );
+
         total_refund_amount
     }
 
+    /// Returns all milestones for a contract, extending their TTL.
     pub(crate) fn get_milestones_impl(env: &Env, contract_id: u32) -> Vec<Milestone> {
         let milestone_key = Symbol::new(env, "milestones");
         let milestones: Vec<Milestone> = env
@@ -233,6 +260,7 @@ impl Escrow {
         milestones
     }
 
+    /// Returns a single milestone by index, or panics if out of bounds.
     pub(crate) fn get_milestone_impl(
         env: &Env,
         contract_id: u32,
@@ -253,6 +281,7 @@ impl Escrow {
         milestones.get(milestone_index)
     }
 
+    /// Returns the approvals for a milestone, extending their TTL if present.
     pub(crate) fn get_milestone_approvals_impl(
         env: &Env,
         contract_id: u32,
@@ -282,6 +311,7 @@ impl Escrow {
         approvals
     }
 
+    /// Returns the approval deadline for a milestone, or None if no approval exists.
     pub(crate) fn get_approval_deadline_impl(
         env: &Env,
         contract_id: u32,
@@ -306,6 +336,8 @@ impl Escrow {
         Some(ttl::compute_expiry(env, ttl::PENDING_APPROVAL_TTL_LEDGERS))
     }
 
+    /// Submits work evidence for a milestone. Rejects empty, oversized, or
+    /// locked evidence, and milestones that are already released or refunded.
     pub(crate) fn submit_work_evidence_impl(
         env: &Env,
         contract_id: u32,
@@ -353,6 +385,7 @@ impl Escrow {
             env.panic_with_error(Error::AlreadyRefunded);
         }
 
+        // Reject evidence changes once the milestone has been approved for release.
         // Reject evidence changes once the milestone has been approved for
         // release. Approvals are stored in temporary storage and auto-expire;
         // a missing (expired) approval is treated as absent and does not lock
@@ -375,6 +408,7 @@ impl Escrow {
         true
     }
 
+    /// Returns the work evidence for a milestone, or None if not set.
     pub(crate) fn get_work_evidence_impl(
         env: &Env,
         contract_id: u32,

@@ -229,8 +229,6 @@ fn test_concurrent_transitions_version_check() {
 #[test]
 fn test_milestone_state_both_flags_set_invalid() {
     // Verify that invalid state (both flags set) is rejected safely
-    use crate::milestone_transitions::MilestoneState;
-
     let mut milestone = make_milestone_pending(1000);
     milestone.released = true;
     milestone.refunded = true;
