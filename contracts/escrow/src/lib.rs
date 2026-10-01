@@ -360,6 +360,7 @@ impl Escrow {
     ) -> bool {
         Self::require_not_paused(&env);
         Self::require_not_finalized(&env, contract_id);
+        caller.require_auth();
         approvals::approve_milestone(&env, contract_id, milestone_index, &caller)
             .unwrap_or_else(|e| env.panic_with_error(e));
 
@@ -369,6 +370,29 @@ impl Escrow {
             (milestone_index, caller.clone(), env.ledger().timestamp()),
         );
         true
+    }
+
+    /// Revokes the caller's own approval for an unreleased milestone.
+    ///
+    /// Requires caller authorization and preserves any other participant's
+    /// approval. Emits the legacy `revoked` event on success.
+    pub fn revoke_milestone_approval(
+        env: Env,
+        contract_id: u32,
+        caller: Address,
+        milestone_index: u32,
+    ) -> bool {
+        Self::require_not_paused(&env);
+        Self::require_not_finalized(&env, contract_id);
+        caller.require_auth();
+        let result = approvals::revoke_approval(&env, contract_id, milestone_index, &caller)
+            .unwrap_or_else(|e| env.panic_with_error(e));
+
+        env.events().publish(
+            (Symbol::new(&env, "revoked"),),
+            (contract_id, milestone_index, caller),
+        );
+        result
     }
 
     pub fn release_milestone(

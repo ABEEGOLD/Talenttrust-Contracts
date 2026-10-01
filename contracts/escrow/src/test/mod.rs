@@ -11,6 +11,7 @@ use crate::{
 // --- Submodules ---
 mod access_control;
 mod admin_auth_helper;
+mod approval_compatibility;
 mod approval_expiry;
 mod budget;
 mod cancel_contract;
