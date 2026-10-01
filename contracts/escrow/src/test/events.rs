@@ -84,7 +84,7 @@ fn per_item_events_emitted() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: Symbol::new(&env, "event_1"),
@@ -119,7 +119,7 @@ fn emit_events_batch_alias_succeeds() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("alias_evt"),
@@ -139,7 +139,7 @@ fn events_batch_alias_succeeds() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("alias_evt"),
@@ -175,7 +175,7 @@ fn batch_events_fails_when_paused() {
 
     client.pause();
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("paused_e"),

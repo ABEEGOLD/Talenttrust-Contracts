@@ -10,6 +10,9 @@
 //! - **Overflow safety**: `u64` boundary values do not panic.
 //! - **Ledger boundary**: timestamp 0 and `u64::MAX` are handled.
 //! - **Escrow conservation**: release/refund totals never exceed deposits.
+//! - **Compatibility contract**: the public `is_milestone_overdue` entrypoint
+//!   keeps its strict-`>` semantics, `None`/released short-circuits, and
+//!   never mutates escrow accounting across all generated inputs.
 //!
 //! # Running
 //!
@@ -23,6 +26,9 @@ use soroban_sdk::{testutils::Ledger, Address, Env, Symbol, Vec as SorobanVec};
 
 use super::{create_contract, register_client};
 use crate::{DataKey, Milestone};
+
+/// Number of fuzz cases used for the compatibility-contract suite.
+const COMPAT_CASES: u32 = 256;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +63,33 @@ fn set_milestone_deadline_and_released(
     });
 }
 
+/// Assert the public compatibility contract for `is_milestone_overdue`:
+/// the call must not mutate escrow accounting and must return the same value
+/// on repeated invocation with identical state (determinism).
+fn assert_overdue_compat_contract(
+    env: &Env,
+    client: &crate::EscrowClient,
+    contract_id: &u32,
+    index: &u32,
+    expected: bool,
+) {
+    let first = client.is_milestone_overdue(contract_id, index);
+    let second = client.is_milestone_overdue(contract_id, index);
+    assert_eq!(
+        first, second,
+        "is_milestone_overdue must be deterministic for identical state"
+    );
+    assert_eq!(
+        first, expected,
+        "is_milestone_overdue returned unexpected value"
+    );
+    let contract = client.get_contract(contract_id);
+    assert_eq!(contract.funded_amount, 0i128, "funded_amount must be unchanged");
+    assert_eq!(contract.released_amount, 0i128, "released_amount must be unchanged");
+    assert_eq!(contract.refunded_amount, 0i128, "refunded_amount must be unchanged");
+    let _ = env;
+}
+
 // ── Category 1: Zero duration / zero deadline ────────────────────────────────
 
 proptest! {
@@ -75,6 +108,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline=0, now=0 must not be overdue (strict >)"
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 
     /// A milestone with deadline=0 and now=1 must be overdue.
@@ -90,6 +124,7 @@ proptest! {
             client.is_milestone_overdue(&id, &0),
             "deadline=0, now=1 must be overdue"
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, true);
     }
 }
 
@@ -111,6 +146,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline=u64::MAX, now={} must not be overdue", now
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 
     /// deadline=u64::MAX, now=u64::MAX must NOT be overdue (strict >).
@@ -126,6 +162,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline=u64::MAX, now=u64::MAX must not be overdue (strict >)"
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 }
 
@@ -148,6 +185,7 @@ proptest! {
             client.is_milestone_overdue(&id, &0),
             "deadline={}, now={} must be overdue", deadline, now
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, true);
     }
 
     /// For any deadline > 0, now = deadline must NOT be overdue (strict >).
@@ -163,6 +201,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline={}, now={} must NOT be overdue (strict >)", deadline, deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 }
 
@@ -193,6 +232,7 @@ proptest! {
             "now_before={} < deadline={} must not be overdue",
             now_before, deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // at exact boundary: now = deadline (must NOT be overdue)
         set_now(&env, deadline);
@@ -200,6 +240,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "now == deadline must not be overdue (strict >)"
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // after: now = deadline + delta_after (must be overdue)
         let now_after = deadline.saturating_add(delta_after);
@@ -209,6 +250,7 @@ proptest! {
             "now_after={} > deadline={} must be overdue",
             now_after, deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, true);
     }
 }
 
@@ -230,6 +272,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "now=0 with deadline={} must not be overdue", deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 
     /// A small deadline must be overdue one tick past but not at the exact tick.
@@ -247,6 +290,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline={}, now=deadline must not be overdue", deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // One past deadline
         set_now(&env, deadline + 1);
@@ -254,6 +298,7 @@ proptest! {
             client.is_milestone_overdue(&id, &0),
             "deadline={}, now=deadline+1 must be overdue", deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, true);
     }
 }
 
@@ -275,6 +320,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "released milestone must never be overdue (now={}, deadline={})", now, deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 }
 
@@ -296,6 +342,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "None deadline must never be overdue at now={}", now
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
     }
 }
 
@@ -316,6 +363,7 @@ proptest! {
             !client.is_milestone_overdue(&bad_id, &0),
             "unknown contract {} must not be overdue", bad_id
         );
+        assert_overdue_compat_contract(&env, &client, &bad_id, &0, false);
     }
 
     /// Out-of-bounds milestone index must return false.
@@ -330,6 +378,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &oob),
             "OOB milestone index {} must not be overdue", oob
         );
+        assert_overdue_compat_contract(&env, &client, &id, &oob, false);
     }
 }
 
@@ -360,5 +409,6 @@ proptest! {
         prop_assert_eq!(contract.funded_amount, 0i128);
         prop_assert_eq!(contract.released_amount, 0i128);
         prop_assert_eq!(contract.refunded_amount, 0i128);
+        assert_overdue_compat_contract(&env, &client, &id, &0, _overdue);
     }
 }
