@@ -154,7 +154,8 @@ impl Escrow {
         // address was updated via another mechanism).
         Self::require_no_role_overlap(env, &contract, &new_client);
 
-        // Persist the updated client address
+        // Preserve the complete stored contract record; migration changes only
+        // the client role and must not reset accounting or other contract state.
         contract.client = new_client.clone();
         env.storage()
             .persistent()
