@@ -152,6 +152,19 @@ pub fn apply_validated_deposit(
         total_amount,
     } = validated;
 
+    // Safety invariant: the validated snapshot is only valid if the escrow state
+    // has not changed since the preflight. A replayed or stale snapshot can
+    // otherwise overwrite newer funding totals and silently regress the escrow.
+    let current_contract: Contract = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Contract(contract_id))
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+    if current_contract != contract {
+        env.panic_with_error(Error::InvalidState);
+    }
+
     ttl::extend_contract_ttl(&env, contract_id);
 
     caller.require_auth();
