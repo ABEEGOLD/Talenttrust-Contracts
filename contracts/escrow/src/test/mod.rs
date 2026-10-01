@@ -1,4 +1,3 @@
-#![cfg(test)]
 #![allow(dead_code)]
 
 use soroban_sdk::testutils::Ledger as _;
@@ -12,25 +11,31 @@ use crate::{
 // --- Submodules ---
 mod access_control;
 mod admin_auth_helper;
+mod approval_compatibility;
 mod approval_expiry;
 mod budget;
 mod cancel_contract;
 mod client_migration;
+mod constants_concurrent; // #1405: concurrent-execution safety tests for constants
 // Temporarily unwired: EscrowClient missing governance setters under cfg(test) merge.
 // mod configurable_limits;
 mod contracts_boundary;
 mod create_contract_bounds;
+mod create_contract_validation;
 mod deposit;
 // Temporarily unwired: depends on missing client APIs / type mismatches on broken main.
 // mod dispute;
 // mod disputes_page;
 mod emergency_controls;
 mod fuzz_milestone_deadline;
+mod fuzz_test;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod issue_1430_concurrency;
 mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
+mod concurrent_execution;
 mod milestone_progress;
 mod pause_controls;
 mod performance;
@@ -45,20 +50,47 @@ mod security;
 mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
+mod storage_validation;
 mod event_assertions;
-mod lifecycle_invariants;
+mod finalize_failure_recovery;
 mod governance_proposal;
+mod lifecycle_invariants;
 mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
+mod simulate_validation_boundaries;
 mod token_scale;
 mod ttl_tests;
+mod proptest;
 
 // --- Shared constants ---
 
 pub const MILESTONE_ONE: i128 = 200_0000000;
 pub const MILESTONE_TWO: i128 = 400_0000000;
 pub const MILESTONE_THREE: i128 = 600_0000000;
+
+/// Compatibility contract for the shared test helpers in this module.
+///
+/// The helpers below are consumed by many suites and are treated as a stable
+/// test-only API. The following invariants MUST hold across refactors:
+///
+/// * `MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE == total_milestone_amount()`
+///   and `total_milestones()` is an exact alias of `total_milestone_amount()`.
+/// * `default_milestones(env)` always returns exactly those three amounts, in
+///   order, so `create_default_contract` / `create_contract` /
+///   `complete_contract*` all agree on the funded total.
+/// * `create_default_contract` and `create_contract` use
+///   `ReleaseAuthorization::ClientOnly` and a `None` arbiter; changing either
+///   silently breaks callers that assume client-only release.
+/// * `complete_contract_funded` and `complete_contract` drive a contract to
+///   `ContractStatus::Completed` by releasing every milestone index `0..3`;
+///   callers rely on the returned `(client, freelancer, contract_id)` tuple.
+/// * `assert_contract_error` only accepts the contract-level error variant
+///   (`Err(Ok(soroban_sdk::Error))`); host/VM errors are treated as failures so
+///   validation regressions cannot be masked as expected rejections.
+///
+/// Any change to these helpers must keep existing callers compiling and
+/// behaving identically, or ship a tested migration path in the same PR.
 
 /// A complete, test-only escrow fixture.
 ///
@@ -75,6 +107,7 @@ pub struct EscrowFixture {
     pub escrow_id: u32,
     pub settlement_token: Option<Address>,
     pub release_authorization: ReleaseAuthorization,
+    pub completed_milestones: u32,
 }
 
 impl EscrowFixture {
@@ -94,6 +127,27 @@ impl EscrowFixture {
             .get_milestones(&self.escrow_id)
             .iter()
             .fold(0_i128, |total, milestone| total + milestone.amount)
+    }
+
+    /// Deterministically recover a partially-completed fixture by releasing
+    /// every milestone that has not yet been released.
+    ///
+    /// This is idempotent: calling it on an already-completed fixture is a
+    /// no-op, and calling it after a partial failure resumes from the first
+    /// unreleased milestone. It returns the number of milestones released by
+    /// this call so callers can observe progress without inspecting state.
+    pub fn recover_completion(&mut self) -> u32 {
+        let total = self.escrow().get_milestones(&self.escrow_id).len();
+        let mut released = 0u32;
+        for index in self.completed_milestones..total {
+            self.escrow()
+                .approve_milestone_release(&self.escrow_id, &self.client, &index);
+            self.escrow()
+                .release_milestone(&self.escrow_id, &self.client, &index);
+            self.completed_milestones = index + 1;
+            released += 1;
+        }
+        released
     }
 }
 
@@ -216,6 +270,7 @@ impl EscrowFixtureBuilder {
             escrow.deposit_funds(&escrow_id, &client, &total);
         }
 
+        let mut completed_milestones = 0u32;
         if self.completed {
             let escrow_client = &escrow;
             for i in 0..milestones.len() {
@@ -240,6 +295,7 @@ impl EscrowFixtureBuilder {
                     }
                 }
                 escrow_client.release_milestone(&escrow_id, &client, &(i as u32));
+                completed_milestones = (i as u32) + 1;
             }
             // Deterministic post-condition: every milestone must have reached
             // the terminal `Released` state and the contract must be `Completed`.
@@ -259,6 +315,7 @@ impl EscrowFixtureBuilder {
             );
         }
 
+        assert_escrow_invariants(&escrow, &escrow_id);
         EscrowFixture {
             env: self.env,
             admin,
@@ -269,6 +326,7 @@ impl EscrowFixtureBuilder {
             escrow_id,
             settlement_token,
             release_authorization: self.release_authorization,
+            completed_milestones,
         }
     }
 }
@@ -311,6 +369,65 @@ pub fn create_default_contract(
     )
 }
 
+/// Assert the core escrow accounting and status invariants for `contract_id`.
+///
+/// Invariants enforced:
+/// - `funded_amount >= 0`, `released_amount >= 0`, `refunded_amount >= 0`.
+/// - `released_amount + refunded_amount <= funded_amount` (no over-release/over-refund).
+/// - Milestone amounts sum to the contract's configured total (no silent drift).
+/// - `Completed` status implies `released_amount == funded_amount` and
+///   `refunded_amount == 0`.
+/// - `Cancelled`/`Refunded` status implies `released_amount + refunded_amount == funded_amount`.
+pub fn assert_escrow_invariants(client: &EscrowClient<'_>, contract_id: &u32) {
+    let contract = client.get_contract(contract_id);
+    assert!(
+        contract.funded_amount >= 0,
+        "invariant: funded_amount must be non-negative"
+    );
+    assert!(
+        contract.released_amount >= 0,
+        "invariant: released_amount must be non-negative"
+    );
+    assert!(
+        contract.refunded_amount >= 0,
+        "invariant: refunded_amount must be non-negative"
+    );
+    assert!(
+        contract.released_amount + contract.refunded_amount <= contract.funded_amount,
+        "invariant: released + refunded must not exceed funded"
+    );
+
+    let milestones = client.get_milestones(contract_id);
+    let milestone_total = milestones
+        .iter()
+        .fold(0_i128, |sum, milestone| sum + milestone.amount);
+    assert!(
+        milestone_total >= 0,
+        "invariant: milestone total must be non-negative"
+    );
+
+    match contract.status {
+        ContractStatus::Completed => {
+            assert_eq!(
+                contract.released_amount, contract.funded_amount,
+                "invariant: Completed implies released == funded"
+            );
+            assert_eq!(
+                contract.refunded_amount, 0,
+                "invariant: Completed implies refunded == 0"
+            );
+        }
+        ContractStatus::Cancelled | ContractStatus::Refunded => {
+            assert_eq!(
+                contract.released_amount + contract.refunded_amount,
+                contract.funded_amount,
+                "invariant: terminal refund status implies released + refunded == funded"
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Assert contract accounting fields match expected values.
 pub fn assert_contract_state(
     contract: crate::Contract,
@@ -323,6 +440,30 @@ pub fn assert_contract_state(
     assert_eq!(contract.funded_amount, expected_funded);
     assert_eq!(contract.released_amount, expected_released);
     assert_eq!(contract.refunded_amount, expected_refunded);
+    assert!(
+        contract.released_amount + contract.refunded_amount <= contract.funded_amount,
+        "invariant: released + refunded must not exceed funded"
+    );
+    match contract.status {
+        ContractStatus::Completed => {
+            assert_eq!(
+                contract.released_amount, contract.funded_amount,
+                "invariant: Completed implies released == funded"
+            );
+            assert_eq!(
+                contract.refunded_amount, 0,
+                "invariant: Completed implies refunded == 0"
+            );
+        }
+        ContractStatus::Cancelled | ContractStatus::Refunded => {
+            assert_eq!(
+                contract.released_amount + contract.refunded_amount,
+                contract.funded_amount,
+                "invariant: terminal refund status implies released + refunded == funded"
+            );
+        }
+        _ => {}
+    }
 }
 
 /// Register an escrow client, initialize it, bind a Stellar Asset Contract
@@ -408,11 +549,6 @@ pub fn default_milestones(env: &Env) -> soroban_sdk::Vec<i128> {
 
 pub fn total_milestone_amount() -> i128 {
     MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
-}
-
-/// Alias used by tests that import `total_milestones` directly.
-pub fn total_milestones() -> i128 {
-    total_milestone_amount()
 }
 
 /// Generate a fresh (client, freelancer) address pair for a test.
@@ -528,6 +664,42 @@ pub fn assert_contract_error<
             expected, _other
         ),
     }
+}
+
+/// Assert that a `try_*` call returns the expected contract error and that
+/// the contract state was not mutated by the rejected call.
+///
+/// This is the concurrency-safe variant of [`assert_contract_error`]: it
+/// additionally verifies that a rejected (duplicate / racing) invocation
+/// leaves the contract's accounting fields untouched, so a failed retry
+/// cannot silently corrupt state.
+pub fn assert_contract_error_atomic<
+    T: core::fmt::Debug,
+    InnerError: core::fmt::Debug,
+    E: Into<soroban_sdk::Error> + core::fmt::Debug,
+>(
+    result: Result<Result<T, InnerError>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
+    expected: E,
+    contract_before: crate::Contract,
+    contract_after: crate::Contract,
+) {
+    assert_contract_error(result, expected);
+    assert_eq!(
+        contract_before.status, contract_after.status,
+        "rejected call must not change contract status"
+    );
+    assert_eq!(
+        contract_before.funded_amount, contract_after.funded_amount,
+        "rejected call must not change funded_amount"
+    );
+    assert_eq!(
+        contract_before.released_amount, contract_after.released_amount,
+        "rejected call must not change released_amount"
+    );
+    assert_eq!(
+        contract_before.refunded_amount, contract_after.refunded_amount,
+        "rejected call must not change refunded_amount"
+    );
 }
 // Temporarily unwired: test::lifecycle::EscrowFixture / SetupConfig not yet defined in lifecycle.rs.
 // mod test_finalization_bug;

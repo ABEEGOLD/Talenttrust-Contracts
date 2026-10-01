@@ -1,13 +1,13 @@
 use crate::types::Contract;
 use crate::EscrowError;
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk:{symbol_short, Address, Env};
 
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInput {
-    pub topic: soroban_sdk::Symbol,
+    pub topic: soroban_sdk:Symbol,
     pub contract_id: u32,
-    pub data: soroban_sdk::Symbol,
+    pub data: soroban_sdk:Symbol,
 }
 
 /// Maximum number of events processed in a batch operations.
@@ -18,11 +18,11 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 ///
 /// # Event Specification
 /// - **Topic**: `(symbol_short!("contract"), contract_id: u32)`
-/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`
+/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`"
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMustBePositive` if any amount field is negative.
+/// - `AmountMusbePositive` if any amount field is negative.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::InvalidContractId);
@@ -48,8 +48,8 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
     );
 }
 
-/// Validate that event payload amounts are non-negative.
-/// Returns `Ok(())` when all amounts are >= 0.
+/// Validate that event payload amounts are non-negative and satisfy accounting invariants.
+/// Returns `Ok(())` when all amounts are >= 0 and sum correctly.
 pub(crate) fn validate_event_amounts(
     funded_amount: i128,
     released_amount: i128,
@@ -59,6 +59,20 @@ pub(crate) fn validate_event_amounts(
     if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || total_deposited < 0 {
         return Err(EscrowError::AmountMustBePositive);
     }
+
+    // Invariant: The sum of funded (currently in escrow), released (paid to freelancer),
+    // and refunded (returned to client) MUST exactly equal total_deposited.
+    let sum_1 = funded_amount
+        .checked_add(released_amount)
+        .ok_or(EscrowError::AccountingInvariantViolated)?;
+    let total_accounted = sum_1
+        .checked_add(refunded_amount)
+        .ok_or(EscrowError::AccountingInvariantViolated)?;
+
+    if total_accounted != total_deposited {
+        return Err(EscrowError::AccountingInvariantViolated);
+    }
+
     Ok(())
 }
 
@@ -66,13 +80,29 @@ pub(crate) fn validate_event_amounts(
 ///
 /// # Event Specification
 /// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
-/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`
+/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`"
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
+/// - `AmountMusbePositive` if any amount field is negative.
 pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
     caller: &Address,
     contract: &Contract,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
+    validate_event_amounts(
+        contract.funded_amount,
+        contract.released_amount,
+        contract.refunded_amount,
+        contract.total_deposited,
+    )
+    .unwrap_or_else(|e| env.panic_with_error(e));
+
     env.events().publish(
         (symbol_short!("dispute"), symbol_short!("opened")),
         (
@@ -83,13 +113,19 @@ pub fn emit_dispute_opened_event(
             contract.refunded_amount,
         ),
     );
+
+    true
 }
 
 /// Emits an indexed event when a dispute is resolved.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`"
 /// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
+/// - `AmountMustBePositive` if any payout amount is negative.
 pub fn emit_dispute_resolved_event(
     env: &Env,
     contract_id: u32,
@@ -98,6 +134,14 @@ pub fn emit_dispute_resolved_event(
     resolution_code: u32,
     final_status: crate::types::ContractStatus,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
+    if client_payout < 0 || freelancer_payout < 0 {
+        env.panic_with_error(EscrowError::AmountMustBePositive);
+    }
+
     env.events().publish(
         (symbol_short!("dispute"), symbol_short!("resolved")),
         (
@@ -108,9 +152,15 @@ pub fn emit_dispute_resolved_event(
             final_status as u32,
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is released to a freelancer.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
+/// - `AmountMustBePositive` if `amount`, `gross_amount`, or `fee` is negative.
 pub fn emit_milestone_released_event(
     env: &Env,
     contract_id: u32,
@@ -120,6 +170,14 @@ pub fn emit_milestone_released_event(
     fee: i128,
     recipient: &Address,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
+    if amount < 0 || gross_amount < 0 || fee < 0 {
+        env.panic_with_error(EscrowError::AmountMustBePositive);
+    }
+
     env.events().publish(
         (symbol_short!("milestone"), symbol_short!("release")),
         (
@@ -132,9 +190,15 @@ pub fn emit_milestone_released_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is refunded to the client.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
+/// - `AmountMustBePositive` if `amount` is negative.
 pub fn emit_milestone_refunded_event(
     env: &Env,
     contract_id: u32,
@@ -142,6 +206,14 @@ pub fn emit_milestone_refunded_event(
     amount: i128,
     recipient: &Address,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
+    if amount < 0 {
+        env.panic_with_error(EscrowError::AmountMustBePositive);
+    }
+
     env.events().publish(
         (symbol_short!("milestone"), symbol_short!("refund")),
         (
@@ -152,15 +224,24 @@ pub fn emit_milestone_refunded_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is approved by client or arbiter.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
 pub fn emit_milestone_approved_event(
     env: &Env,
     contract_id: u32,
     milestone_index: u32,
     approver: &Address,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
     env.events().publish(
         (symbol_short!("milestone"), symbol_short!("approved")),
         (
@@ -170,16 +251,25 @@ pub fn emit_milestone_approved_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when work evidence is submitted for a milestone.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is zero.
 pub fn emit_work_evidence_submitted_event(
     env: &Env,
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk::String,
+    evidence: &soroban_sdk:Symbol,
 ) {
+    if contract_id == 0 {
+        env.panic_with_error(EscrowError::InvalidContractId);
+    }
+
     env.events().publish(
         (symbol_short!("milestone"), symbol_short!("evidence")),
         (
@@ -190,4 +280,6 @@ pub fn emit_work_evidence_submitted_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
