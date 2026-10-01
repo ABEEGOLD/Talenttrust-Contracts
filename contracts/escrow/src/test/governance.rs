@@ -1,5 +1,15 @@
 //! Unit tests for the two-step admin transfer (propose/accept/cancel) with
 //! timelock and expiry, per issue #1321.
+//!
+//! State invariants exercised here:
+//! - `pending_admin` is either `None` or `Some(addr)` where `addr != admin`.
+//! - `admin` only changes via `accept_admin`, which requires a pending
+//!   proposal, elapsed timelock, and unexpired TTL.
+//! - A failed `accept_admin` (timelock/expiry) rolls back and leaves the
+//!   pending proposal intact; only `cancel_admin` or a fresh `propose_admin`
+//!   clears/replaces it.
+//! - `cancel_admin` is idempotent-safe: it errors when no proposal exists
+//!   rather than silently succeeding.
 
 use crate::{
     Escrow, EscrowClient, ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS,
@@ -151,6 +161,8 @@ fn accept_after_cancel_fails() {
 
 #[test]
 fn accept_by_wrong_account_rejected() {
+    // Invariant: only the proposed address can complete the transfer; the
+    // original admin cannot retain control after a successful accept.
     let env = setup_env();
     let client = register_client(&env);
 
@@ -201,6 +213,8 @@ fn cancel_not_initialized_fails() {
 
 #[test]
 fn propose_then_cancel_then_new_propose_then_accept() {
+    // Invariant: cancel fully clears the pending slot so a subsequent
+    // proposal starts from a clean state with no stale timelock anchor.
     let env = setup_env();
     let client = register_client(&env);
 
@@ -248,6 +262,8 @@ fn accept_before_timelock_rejected() {
 
 #[test]
 fn accept_after_expiry_window_rejected() {
+    // Invariant: an expired proposal must not mutate `admin` and must not be
+    // silently cleared; the caller must explicitly cancel or re-propose.
     let env = setup_env();
     let client = register_client(&env);
 
@@ -272,6 +288,8 @@ fn accept_after_expiry_window_rejected() {
 
 #[test]
 fn accept_exactly_at_expiry_boundary_succeeds() {
+    // Boundary: TTL is inclusive, so accepting exactly at the expiry ledger
+    // is still valid and must transition state atomically.
     let env = setup_env();
     let client = register_client(&env);
 
@@ -304,6 +322,8 @@ fn expired_proposal_can_be_cancelled() {
 
 #[test]
 fn expired_proposal_requires_re_propose() {
+    // Regression: re-proposing after expiry must reset the timelock anchor
+    // so the new proposal is subject to a fresh minimum delay.
     let env = setup_env();
     let client = register_client(&env);
 
