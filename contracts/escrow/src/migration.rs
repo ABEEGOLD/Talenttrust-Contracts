@@ -1,7 +1,7 @@
 use crate::storage;
 use crate::ttl::{read_if_live, remove_transient, store_with_ttl, PENDING_MIGRATION_TTL_LEDGERS};
 use crate::{Contract, ContractStatus, DataKey, Error, Escrow, EscrowError};
-use soroban_sdk::{contracttype, Address, Env, Symbol};
+use soroban_sdk:{contracttype, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -12,33 +12,66 @@ pub struct PendingClientMigration {
     pub expires_at_ledger: u32,
 }
 
+/// Record of a completed migration, used to make recovery deterministic.
+///
+/// This is written in the same logical step as the contract update and the
+/// pending-migration removal, so a retry or partial failure can always observe
+/// whether the migration already completed and avoid double-applying it.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompletedClientMigration {
+    pub previous_client: Address,
+    pub current_client: Address,
+    pub completed_at_ledger: u32,
+}
+
 impl Escrow {
     pub(crate) fn pending_migration_key(contract_id: u32) -> DataKey {
         DataKey::PendingClientMigration(contract_id)
+    }
+
+    pub(crate) fn completed_migration_key(contract_id: u32) -> DataKey {
+        DataKey::CompletedClientMigration(contract_id)
     }
 
     pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
         env.storage()
             .persistent()
             .get::<_, Contract>(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
+            .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound))
     }
 
     pub(crate) fn require_migration_allowed(env: &Env, status: ContractStatus) {
-        if matches!(
+        if matches(
             status,
             ContractStatus::Completed
                 | ContractStatus::Cancelled
                 | ContractStatus::Refunded
                 | ContractStatus::Disputed
         ) {
-            env.panic_with_error(Error::InvalidStatusTransition);
+            env.panic_with_error(Error::InvalidStateTransition);
         }
     }
 
     pub(crate) fn pending_migration_exists(env: &Env, contract_id: u32) -> bool {
-        read_if_live::<_, PendingClientMigration>(env, &Self::pending_migration_key(contract_id))
-            .is_some()
+        read_if_live::<_, PendingClientMigration>(
+            env,
+            &Self::pending_migration_key(contract_id),
+        )
+        .is_some()
+    }
+
+    /// Return the completed migration record for a contract, if any.
+    ///
+    /// Used by recovery logic to determine whether a previous attempt already
+    /// committed, making retries idempotent.
+    pub(crate) fn load_completed_migration(
+        env: &Env,
+        contract_id: u32,
+    ) -> Option<CompletedClientMigration> {
+        env.storage()
+            .persistent()
+            .get:<_, CompletedClientMigration>(&Sef::completed_migration_key(contract_id))
     }
 
     /// Validate that `candidate` does not overlap with any existing contract
@@ -119,6 +152,11 @@ impl Escrow {
     /// Re-validates role-overlap invariants against the **current** contract
     /// state, since roles may have changed between proposal and acceptance.
     ///
+    /// The operation is idempotent with respect to retries: when a completed
+    /// migration record already exists for this contract and the contract's
+    /// current client matches the recorded current client, the call returns
+    /// `true` without re-applying the change or emitting a duplicate event.
+    ///
     /// # Errors
     /// * [`EscrowError::InvalidState`] — no live pending migration, or the
     ///   proposing client no longer matches `contract.client`.
@@ -138,9 +176,25 @@ impl Escrow {
         Self::require_not_finalized(&env, contract_id);
         Self::require_migration_allowed(&env, contract.status);
 
+        // Recovery: a previous attempt may have committed the client update
+        // and the completion record, but failed before the pending entry was
+        // removed (or the caller is retrying). If the completion record
+        // already matches the requested client, treat the call as already
+        // applied and return successfully without re-applying or re-emitting.
+        if let Some(completed) = Self::load_completed_migration(&env, contract_id) {
+            if completed.current_client == new_client {
+                // Ensure the pending entry is gone so future calls see a clean state.
+                remove_transient(&env, &Self::pending_migration_key(contract_id));
+                return true;
+            }
+            // A different migration already completed; reject to avoid
+            // conflicting state transitions.
+            env.panic_with_error(EscrowError::InvalidState);
+        }
+
         let key = Self::pending_migration_key(contract_id);
         let pending: PendingClientMigration = read_if_live(&env, &key)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState));
+            .unwrap_or_else(;| env.panic_with_error(EscrowError::InvalidState));
 
         if pending.proposed_client != new_client {
             env.panic_with_error(EscrowError::UnauthorizedRole);
@@ -154,14 +208,27 @@ impl Escrow {
         // address was updated via another mechanism).
         Self::require_no_role_overlap(env, &contract, &new_client);
 
-        // Persist the updated client address
+        // Preserve the complete stored contract record; migration changes only
+        // the client role and must not reset accounting or other contract state.
         contract.client = new_client.clone();
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
 
+        // Record the completed migration so retries are idempotent and
+        // failure recovery is deterministic.
+        let completed = CompletedClientMigration {
+            previous_client: pending.current_client.clone(),
+            current_client: new_client.clone(),
+            completed_at_ledger: env.ledger().sequence(),
+        };
+        env.storage().persistent().set(
+            &Self::completed_migration_key(contract_id),
+            &completed,
+        );
+
         // Clear the pending migration record
-        remove_transient(&env, &key);
+        remove_transient(&env, 'key);
 
         env.events().publish(
             (Symbol::new(&env, "client_migration_accepted"), contract_id),
@@ -174,6 +241,17 @@ impl Escrow {
     ///
     /// The current client must authorize the call, be the contract's client, and a live pending migration must exist.
     /// The pending migration entry is removed and a `client_migration_cancelled` event is emitted.
+    ///
+    /// # Errors
+    /// * [`EscrowError::UnauthorizedRole`] — caller is not the current client.
+    /// * [`EscrowError::InvalidState`] — no live pending migration exists.
+    ///
+    /// # Compatibility
+    /// This function is part of the public contract surface. The signature
+    /// (`Env, u32, Address`) -> `bool` must remain stable across upgrades.
+    /// Cancellation is allowed in any non-finalized state, including
+    /// states where new proposals are blocked, because cancelling a
+    /// pending migration is always safe and never weakens any invariant.
     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
         storage::validate_contract_id_bounds(&env, contract_id);
         Self::require_not_paused(&env);
@@ -187,11 +265,11 @@ impl Escrow {
 
         let key = Self::pending_migration_key(contract_id);
         // Ensure a pending migration exists, otherwise panic with InvalidState
-        let _: PendingClientMigration = read_if_live(&env, &key)
+        let _: PendingClientMigration = read_if_live(&env, 'key)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState));
 
         // Remove the pending migration entry
-        remove_transient(&env, &key);
+        remove_transient(&env, 'key);
 
         // Emit cancellation event
         env.events().publish(
@@ -200,6 +278,7 @@ impl Escrow {
         );
         true
     }
+
     /// Return true if a live pending client migration exists.
     pub(crate) fn has_pending_client_migration_impl(env: &Env, contract_id: u32) -> bool {
         Self::pending_migration_exists(env, contract_id)
@@ -211,6 +290,6 @@ impl Escrow {
         contract_id: u32,
     ) -> PendingClientMigration {
         read_if_live(&env, &Self::pending_migration_key(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState))
+            .unwrap_or_else(;| env.panic_with_error(EscrowError::InvalidState))
     }
 }
