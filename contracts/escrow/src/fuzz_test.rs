@@ -30,6 +30,7 @@
 //! required. Runtime is bounded by `PROPTEST_CASES` (default 256).
 
 #![cfg(test)]
+#![cfg(test)]
 
 extern crate std;
 
@@ -37,26 +38,22 @@ use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, vec as sorovec, Address, Env, Vec as SoroVec};
 
 use crate::{
+use crate::{
     milestones_consts::{MAX_RATING, MIN_RATING},
     Escrow, EscrowClient, EscrowError, ReleaseAuthorization, MAX_MILESTONES, MAX_TOTAL_ESCROW_STROOPS,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-/// Build a fresh, deterministic escrow test environment.
-///
-/// Invariants preserved:
-///   * The returned `Env` is the sole owner of the environment state; no
-///     aliasing or `unsafe` pointer reads are performed.
-///   * Auth mocking is enabled exactly once per environment.
-///   * The registered contract id is stable for the lifetime of the returned
-///     `EscrowClient`.
 fn setup() -> (Env, EscrowClient<'static>) {
-    let env = Env::default();
+    // SAFETY: EscrowClient borrows Env; we box Env so the address is stable for
+    // the lifetime of the test case.
+    let env = Box::leak(Box::new(Env::default()));
+    let env = Box::leak(Box::new(Env::default()));
     env.mock_all_auths();
     let id = env.register(Escrow, ());
-    let client = EscrowClient::new(&env, &id);
-    (env, client)
+    let client = EscrowClient::new(env, &id);
+    (unsafe { std::ptr::read(env as *const Env) }, client)
 }
 
 /// Build a SorobanVec from a std Vec of i128.
