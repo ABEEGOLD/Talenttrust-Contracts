@@ -17,8 +17,21 @@
 //! * **v1 → v2**: reads the existing [`Reputation`] value, re-writes it to
 //!   refresh its TTL, then writes the version marker. All field values are
 //!   preserved exactly.
-//! * **Migration-on-read** ([`read_reputation_with_migration`]): called from
-//!   `get_reputation` so every read transparently upgrades legacy records.
+//! * **Getters stay read-only**: `get_reputation` never mutates storage (RPC
+//!   simulation safety). State writes belong exclusively in
+//!   `migrate_reputation_storage` and `issue_reputation`. Use
+//!   [`read_reputation_with_migration`] only as an opt-in helper, never inside
+//!   getters.
+//!
+//! ## State invariants (protected)
+//!
+//! * Absent record → `false`, zero storage writes (no record, no marker).
+//! * Already-current or future version (`>= REPUTATION_STORAGE_VERSION`) →
+//!   `false`, storage untouched.
+//! * v1 with record → `true`, fields preserved exactly, both keys TTL-bumped.
+//! * Retries / concurrent calls are idempotent: first call migrates, rest no-op.
+//! * Permissionless: no auth required; migration never escalates privilege and
+//!   never deletes or alters reputation field values.
 //!
 //! ## Append-only error codes
 //!
@@ -45,7 +58,10 @@ pub(crate) fn read_reputation_version(env: &Env, address: &Address) -> u32 {
 
 /// Persist the current schema version marker for `address` with the standard
 /// persistent TTL, then bump it via the threshold policy.
-fn write_reputation_version(env: &Env, address: &Address) {
+///
+/// Shared by the migration path and `issue_reputation` so fresh writes never
+/// regress to marker-less v1.
+pub(crate) fn write_reputation_version(env: &Env, address: &Address) {
     let key = DataKey::ReputationStorageVersion(address.clone());
     env.storage()
         .persistent()
@@ -103,7 +119,7 @@ pub(crate) fn migrate_reputation_storage_impl(env: &Env, address: &Address) -> b
     true
 }
 
-// ── Migration-on-read ────────────────────────────────────────────────────────
+// ── Migration-on-read (opt-in helper, NOT wired to getters) ──────────────────
 
 /// Read the [`Reputation`] for `address`, transparently migrating a legacy v1
 /// record to v2 before returning it.
@@ -111,9 +127,9 @@ pub(crate) fn migrate_reputation_storage_impl(env: &Env, address: &Address) -> b
 /// Returns `None` when no reputation record exists (neither v1 nor v2). The
 /// migration step is a no-op for absent records, so `None` is returned cleanly.
 ///
-/// This is the canonical read path used by `get_reputation` so callers always
-/// observe up-to-date versioned records without needing an explicit migration
-/// call.
+/// NOTE: getters (`get_reputation`) must stay read-only for RPC simulation
+/// safety and do NOT call this helper. State writes belong exclusively in
+/// `migrate_reputation_storage` and `issue_reputation`.
 pub(crate) fn read_reputation_with_migration(env: &Env, address: &Address) -> Option<Reputation> {
     // Attempt a silent migration first; this is a no-op for current-version
     // records and also a no-op for absent records.
