@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Property-based tests for the escrow accounting invariant.
 //!
 //! Drives random sequences of `deposit_funds`, `approve_milestone_release`,
@@ -24,8 +25,6 @@
 //! ```
 //!
 //! Failing seeds are auto-saved to `proptest-regressions/proptest.txt`.
-
-#![cfg(test)]
 
 extern crate std;
 
@@ -252,6 +251,10 @@ fn assert_invariant(client: &EscrowClient, id: u32) {
 /// Returns `true` if `next` is a valid monotonic transition from `prev`.
 /// Terminal states (Completed, Refunded, Cancelled) should never be left.
 fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
+    // Invariant: terminal states are absorbing; forward transitions are
+    // monotone. This helper is used by `prop_status_transitions_monotone`
+    // to assert that no operation can move the contract backwards or out
+    // of a terminal state.
     use ContractStatus::*;
     match (prev, next) {
         // Terminal states are absorbing.
@@ -267,12 +270,17 @@ fn is_valid_transition(prev: ContractStatus, next: ContractStatus) -> bool {
         | (Funded, Completed)
         | (Funded, Refunded)
         | (Funded, Cancelled) => true,
+        // PartiallyFunded and Accepted are transient states that may
+        // progress to Funded or be cancelled; they must never regress
+        // to Created or jump directly to Completed/Refunded.
         (PartiallyFunded, PartiallyFunded)
         | (PartiallyFunded, Funded)
         | (PartiallyFunded, Cancelled) => true,
         (Accepted, Accepted)
         | (Accepted, Funded)
         | (Accepted, Cancelled) => true,
+        // Any state may transition into Disputed; Disputed itself is
+        // handled by the catch-all below unless explicitly allowed.
         (_, Disputed) => true,
         // Everything else is invalid.
         _ => false,

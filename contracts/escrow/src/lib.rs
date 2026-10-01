@@ -82,7 +82,8 @@ mod migration;
 mod milestone_transitions;
 mod milestones;
 pub mod milestones_consts;
-pub mod refund;
+mod proptest;
+mod refund_impl;
 mod release;
 mod reputation;
 mod rollback;
@@ -130,6 +131,7 @@ pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::PendingClientMigration;
 pub use migration::{accept_client_migration_impl, get_pending_client_migration_impl, has_pending_client_migration_impl, propose_client_migration_impl};
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
+pub use proptest::{check_contract_invariants, InvariantViolation};
 pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
 pub use ttl::{
     ADMIN_ROTATION_MIN_DELAY_LEDGERS, ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS,
@@ -1547,6 +1549,21 @@ impl Escrow {
             .refunded_amount
             .checked_add(total_refund_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::InsufficientFunds));
+
+        // Enforce the core accounting invariant after mutating refunded_amount:
+        // released + refunded + accumulated_protocol_fees must never exceed
+        // funded_amount. This mirrors the check in `release_milestone` and
+        // `release_milestone_batch` so that no code path can silently violate
+        // the custody accounting invariant.
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+        if invariant_sum > contract.funded_amount {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
 
         // Check if all unreleased milestones are refunded
         let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
@@ -3335,6 +3352,21 @@ impl Escrow {
             .checked_add(info.freelancer_payout)
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
+        // Enforce the core accounting invariant after applying dispute payouts.
+        // `resolution_payouts` already validates that payouts conserve the
+        // available balance, but we re-check the aggregate invariant here so
+        // that any future change to payout arithmetic cannot silently break
+        // the custody accounting invariant.
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+        if invariant_sum > contract.funded_amount {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
+
         // Set final status
         contract.status = dispute::final_status_after_resolution(&contract);
         if contract.status == ContractStatus::Completed {
@@ -3411,6 +3443,20 @@ impl Escrow {
     /// Read the current on-ledger storage schema version for the escrow contract.
     pub fn get_schema_version(env: Env) -> u32 {
         Self::get_schema_version_impl(&env)
+    }
+
+    /// Read-only invariant probe used by property tests and off-chain monitors.
+    ///
+    /// Returns `Ok(())` when the contract's accounting state satisfies the
+    /// custody invariant `released_amount + refunded_amount +
+    /// accumulated_protocol_fees <= funded_amount`, and every milestone's
+    /// `released`/`refunded` flags are mutually exclusive. Returns
+    /// `Err(InvariantViolation)` describing the first violation otherwise.
+    ///
+    /// This entrypoint performs no mutation and does not extend TTLs, so it is
+    /// safe to call from property-test harnesses and monitoring jobs.
+    pub fn check_invariants(env: Env, contract_id: u32) -> Result<(), InvariantViolation> {
+        proptest::check_contract_invariants(&env, contract_id)
     }
 
     /// Upgrade storage schema to `target_version` with admin authorization and events.
