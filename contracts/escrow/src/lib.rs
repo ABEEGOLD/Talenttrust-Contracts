@@ -488,6 +488,7 @@ impl Escrow {
     }
 
     pub fn get_pending_client_migration(env: Env, contract_id: u32) -> PendingClientMigration {
+        Self::require_initialized(&env);
         Self::get_pending_client_migration_impl(&env, contract_id)
     }
 

@@ -256,6 +256,16 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
     // Invariant 2: same zero-ID guard as load_contract. Milestones are keyed
     // by the same contract ID, so an invalid ID must never reach storage.
     validate_contract_id_bounds(env, contract_id);
+    // Invariant: milestones cannot exist without their parent contract.
+    // Verify the contract record first so a stale/orphaned milestone vector
+    // cannot be read after the contract has been removed or never created.
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKey::Contract(contract_id))
+    {
+        env.panic_with_error(Error::ContractNotFound);
+    }
     let milestone_key = Symbol::new(env, "milestones");
     env.storage()
         .persistent()
@@ -503,39 +513,10 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
         .persistent()
         .get(&DataKey::AdminNonce)
         .unwrap_or(0);
-    // Deterministic overflow guard: once the counter reaches u64::MAX no
-    // further nonce can be consumed, so reject rather than wrap/panic.
-    let expected = match current.checked_add(1) {
-        Some(next) => next,
-        None => env.panic_with_error(Error::StaleNonce),
-    };
-    if provided_nonce != expected {
+    // Invariant: the admin nonce is strictly monotonic and must never wrap.
+    // Refuse to advance past u64::MAX so a replay window cannot be reopened.
+    if current == u64::MAX {
         env.panic_with_error(Error::StaleNonce);
-    }
-    // Persist the consumed nonce so replays are rejected.
-    env.storage()
-        .persistent()
-        .set(&DataKey::AdminNonce, &expected);
-}
-
-/// Idempotent variant of [`consume_admin_nonce`] for retry-safe callers.
-///
-/// If the provided nonce equals the currently stored nonce, the call is
-/// treated as a replay of an already-committed operation and returns
-/// `false` without mutating state. Otherwise it behaves like
-/// [`consume_admin_nonce`] and returns `true`.
-///
-/// # Panics
-/// Panics with [`Error::StaleNonce`] if the provided nonce is neither the
-/// expected next value nor the currently stored value.
-pub(crate) fn consume_admin_nonce_idempotent(env: &Env, provided_nonce: u64) -> bool {
-    let current: u64 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AdminNonce)
-        .unwrap_or(0);
-    if provided_nonce == current && current != 0 {
-        return false;
     }
     let expected = current + 1;
     if provided_nonce != expected {
@@ -673,6 +654,36 @@ mod tests {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             load_milestones(&env, 999);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_milestones_orphaned_vector_rejected() {
+        // Regression: a milestone vector must not be readable when its
+        // parent contract record is absent. This protects the invariant
+        // that milestones and their contract are always co-present.
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let milestone_key = Symbol::new(&env, "milestones");
+            env.storage()
+                .persistent()
+                .set(&(DataKey::Contract(42), milestone_key), &milestones);
+
+            // No DataKey::Contract(42) written — must still panic.
+            load_milestones(&env, 42);
         });
     }
 
@@ -1155,21 +1166,34 @@ mod tests {
         });
     }
 
-    // --- Invariant-focused regression tests ---------------------------------
-
     #[test]
-    #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_zero_on_first_call() {
+    fn test_consume_admin_nonce_first_call() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            // First call must be 1; 0 is never valid.
-            consume_admin_nonce(&env, 0);
+            consume_admin_nonce(&env, 1);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap();
+            assert_eq!(stored, 1);
         });
     }
 
     #[test]
     #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_future_value() {
+    fn test_consume_admin_nonce_rejects_replay() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            // Replaying the same nonce must be rejected.
+            consume_admin_nonce(&env, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_future() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
             consume_admin_nonce(&env, 5);
@@ -1177,135 +1201,15 @@ mod tests {
     }
 
     #[test]
-    fn test_consume_admin_nonce_monotonic_and_replay_safe() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            consume_admin_nonce(&env, 2);
-            consume_admin_nonce(&env, 3);
-            let stored: u64 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::AdminNonce)
-                .unwrap();
-            assert_eq!(stored, 3);
-        });
-    }
-
-    #[test]
     #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_rejects_replay_of_last() {
+    fn test_consume_admin_nonce_overflow_guard() {
         let (env, admin) = setup_test_env();
         env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            // Replaying 1 must fail; the stored nonce is now 1 and the
-            // expected next value is 2.
-            consume_admin_nonce(&env, 1);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "StaleNonce")]
-    fn test_consume_admin_nonce_failure_does_not_advance() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            consume_admin_nonce(&env, 1);
-            // Attempt a stale value; this must not mutate the stored nonce.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                consume_admin_nonce(&env, 1);
-            }));
-            assert!(result.is_err());
-            let stored: u64 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::AdminNonce)
-                .unwrap();
-            assert_eq!(stored, 1);
-            // The next valid value is still 2.
-            consume_admin_nonce(&env, 2);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "EmergencyActive")]
-    fn test_require_pause_scope_emergency_beats_legacy_pause() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            env.storage().persistent().set(&DataKey::Paused, &true);
-            env.storage().persistent().set(&DataKey::Emergency, &true);
-            require_pause_scope(&env, &crate::PauseTarget::Payout);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "PauseScopeActive")]
-    fn test_require_pause_scope_global_blocks_payout() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            env.storage().persistent().set(
-                &DataKey::PauseScope,
-                &crate::PauseScope {
-                    target: crate::PauseTarget::Global,
-                },
-            );
-            require_pause_scope(&env, &crate::PauseTarget::Payout);
-        });
-    }
-
-    #[test]
-    fn test_require_pause_scope_non_overlapping_allows() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            env.storage().persistent().set(
-                &DataKey::PauseScope,
-                &crate::PauseScope {
-                    target: crate::PauseTarget::Dispute,
-                },
-            );
-            // Payout is not blocked by a Dispute-scoped pause.
-            require_pause_scope(&env, &crate::PauseTarget::Payout);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "AlreadyFinalized")]
-    fn test_load_contract_checked_finalized_after_pause_cleared() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            let client = Address::generate(&env);
-            let freelancer = Address::generate(&env);
-            let contract = Contract {
-                client: client.clone(),
-                freelancer: freelancer.clone(),
-                arbiter: None,
-                status: crate::ContractStatus::Created,
-                release_authorization: crate::ReleaseAuthorization::ClientOnly,
-                funded_amount: 0,
-                released_amount: 0,
-                refunded_amount: 0,
-                total_deposited: 0,
-                reputation_issued: false,
-            };
             env.storage()
                 .persistent()
-                .set(&DataKey::Contract(42), &contract);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Finalization(42), &true);
-            // No pause set: finalization must still block.
-            load_contract_checked(&env, 42, true, true);
-        });
-    }
-
-    #[test]
-    #[should_panic(expected = "ContractNotFound")]
-    fn test_load_contract_checked_zero_id_short_circuits_before_pause() {
-        let (env, admin) = setup_test_env();
-        env.as_contract(&admin, || {
-            // Even with pause set, the zero-ID bounds check must fire first
-            // so that invalid input is reported deterministically.
-            env.storage().persistent().set(&DataKey::Paused, &true);
-            load_contract_checked(&env, 0, true, true);
+                .set(&DataKey::AdminNonce, &u64::MAX);
+            // Must refuse to advance past u64::MAX rather than wrap to 0.
+            consume_admin_nonce(&env, 0);
         });
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::Address as _, testutils::Events, testutils::Ledger as _, testutils::LedgerInfo,
-    Address, Env, IntoVal, Symbol, TryFromVal, Val,
+    Address, Env, Symbol, TryFromVal,
 };
 
 use super::{assert_contract_error, create_contract, register_client, total_milestone_amount};
