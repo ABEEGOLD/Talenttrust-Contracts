@@ -38,12 +38,28 @@
 //! compile-time failure instead of a runtime surprise.
 
 /// Minimum valid reputation rating (inclusive).
+///
+/// # Invariant
+/// `MIN_RATING >= 1` — zero is not a valid rating because absence of rating
+/// is represented by `None`, not by a zero value.  Every reputation-issuing
+/// path (`issue_reputation`) must reject `rating < MIN_RATING`.
 pub const MIN_RATING: u32 = 1;
 
 /// Maximum valid reputation rating (inclusive).
+///
+/// # Invariant
+/// `MAX_RATING >= MIN_RATING` — the valid rating interval must be non-empty.
+/// The current 1–5 scale matches common freelance platforms and is small
+/// enough to avoid precision disputes.  `issue_reputation` must reject
+/// `rating > MAX_RATING`.
 pub const MAX_RATING: u32 = 5;
 
 /// Max byte length of a reputation feedback comment.
+///
+/// # Invariant
+/// `MAX_COMMENT_BYTES >= 1` — a zero-length comment is rejected as empty; use
+/// a minimum of 1 byte so the interval `[1, MAX_COMMENT_BYTES]` is non-empty.
+/// `issue_reputation` must reject comments whose `len() > MAX_COMMENT_BYTES`.
 pub const MAX_COMMENT_BYTES: u32 = 200;
 
 /// Unit increment for pending reputation credits.
@@ -69,12 +85,21 @@ pub const REPUTATION_CREDIT_INCREMENT: i128 = 1;
 pub const MAX_PENDING_REPUTATION_CREDITS: i128 = 1_000_000;
 
 /// Basis-point scaling factor for `get_average_rating` (×10_000 preserves four decimal places).
+///
+/// # Invariant
+/// `SCALE > 0` — the scaling factor must be strictly positive so that the
+/// fixed-point arithmetic used in `get_average_rating` never divides by zero
+/// and always yields a non-negative result for valid ratings.
 pub const SCALE: i128 = 10_000;
 
 /// Upper bound on the `limit` parameter of paginated read views.
 ///
 /// Keeps per-call storage reads bounded and prevents callers from requesting
 /// unbounded scans in a single invocation.
+///
+/// # Invariant
+/// `PAGE_CEILING >= 1` — at least one record per page must be returnable;
+/// a ceiling of zero would make every paginated read vacuous.
 pub const PAGE_CEILING: u32 = 50;
 
 // ── Pending reputation-credit ledger arithmetic ───────────────────────────────
