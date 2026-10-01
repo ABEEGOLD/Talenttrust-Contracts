@@ -149,13 +149,15 @@ pub(crate) fn validate_milestones(env: &Env, milestones: &Vec<crate::Milestone>)
 /// # Returns
 /// `true` if initialized, or panics with `NotInitialized`
 pub(crate) fn require_initialized(env: &Env) -> bool {
-    env.storage()
+    let initialized = env
+        .storage()
         .persistent()
         .get::<_, bool>(&DataKey::Initialized)
-        .unwrap_or(false)
-        .then_some(true)
-        .ok_or(Error::NotInitialized)
-        .unwrap_or_else(|err| env.panic_with_error(err))
+        .unwrap_or(false);
+    if !initialized {
+        env.panic_with_error(Error::NotInitialized);
+    }
+    true
 }
 
 /// Load a contract from persistent storage.
@@ -419,9 +421,12 @@ pub(crate) fn consume_admin_nonce(env: &Env, provided_nonce: u64) {
         .persistent()
         .get(&DataKey::AdminNonce)
         .unwrap_or(0);
-    let expected = current
-        .checked_add(1)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    // Deterministic overflow handling: a saturated nonce cannot advance further,
+    // so reject rather than wrap (which would silently reopen old nonces).
+    let expected = match current.checked_add(1) {
+        Some(next) => next,
+        None => env.panic_with_error(Error::StaleNonce),
+    };
     if provided_nonce != expected {
         env.panic_with_error(Error::StaleNonce);
     }
@@ -645,6 +650,52 @@ mod tests {
         env.as_contract(&admin, || {
             let result = require_not_finalized(&env, 42);
             assert!(result);
+        });
+    }
+
+    #[test]
+    fn test_consume_admin_nonce_first_call() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            let stored: u64 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AdminNonce)
+                .unwrap_or(0);
+            assert_eq!(stored, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_replay() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 1);
+            // Replaying the same nonce must be rejected deterministically.
+            consume_admin_nonce(&env, 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_future() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            consume_admin_nonce(&env, 2);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "StaleNonce")]
+    fn test_consume_admin_nonce_rejects_overflow() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::AdminNonce, &u64::MAX);
+            consume_admin_nonce(&env, 0);
         });
     }
 
