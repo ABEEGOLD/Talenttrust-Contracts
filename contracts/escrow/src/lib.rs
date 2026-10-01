@@ -3696,3 +3696,7 @@ mod proptest;
 
 #[cfg(test)]
 mod test;
+
+/// Amount compatibility contract tests, compiled only for native test builds.
+#[cfg(test)]
+mod simple_amount_test;
