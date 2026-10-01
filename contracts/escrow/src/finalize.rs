@@ -128,16 +128,31 @@ impl Escrow {
         contract
     }
 
+    /// Load a contract for finalization without extending TTL. Finalization
+    /// is a terminal transition; the record itself is what must outlive the
+    /// contract, so we do not refresh the contract TTL here.
+    fn load_contract_for_finalization_checked(
+        env: &Env,
+        contract_id: u32,
+    ) -> Contract {
+        Self::load_contract_for_finalization(env, contract_id)
+    }
+
     pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
-        env.storage()
-            .persistent()
-            .has(&Self::finalization_key(contract_id))
+        settlement::is_finalized(env, contract_id)
     }
 
     pub(crate) fn require_not_finalized(env: &Env, contract_id: u32) {
-        if Self::is_finalized(env, contract_id) {
-            env.panic_with_error(Error::AlreadyFinalized);
-        }
+        settlement::require_not_finalized(env, contract_id);
+    }
+
+    /// Returns true when the contract status is a terminal, non-mutable
+    /// state that must never be resurrected by lifecycle entrypoints.
+    pub(crate) fn is_terminal_status(status: ContractStatus) -> bool {
+        matches!(
+            status,
+            ContractStatus::Cancelled | ContractStatus::Refunded
+        )
     }
 
     /// Load a contract, verify it's in an active (mutable) state, and extend
@@ -158,9 +173,7 @@ impl Escrow {
         let contract = crate::storage::load_contract(env, contract_id);
         ttl::extend_contract_ttl(env, contract_id);
         Self::require_not_finalized(env, contract_id);
-        if contract.status == ContractStatus::Cancelled
-            || contract.status == ContractStatus::Refunded
-        {
+        if Self::is_terminal_status(contract.status) {
             env.panic_with_error(Error::InvalidState);
         }
         contract
@@ -228,6 +241,13 @@ impl Escrow {
         // for as long as the seal that quotes it.
         ttl::extend_milestone_ttl(env, contract_id);
 
+        // Invariant: milestone count must be non-zero for a finalized
+        // contract. A zero-milestone contract cannot have a meaningful
+        // accounting snapshot and indicates corrupted state.
+        if milestones.is_empty() {
+            env.panic_with_error(Error::InvalidState);
+        }
+
         let mut total_amount: i128 = 0;
         let mut released_milestone_count: u32 = 0;
         let mut milestone_summaries = Vec::new(env);
@@ -245,6 +265,13 @@ impl Escrow {
             total_amount = total_amount
                 .checked_add(ms.amount)
                 .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+            // Invariant: a milestone cannot be both released and refunded.
+            // Allowing both would double-count funds in the summary and
+            // break downstream accounting.
+            if ms.released && ms.refunded {
+                env.panic_with_error(Error::InvalidState);
+            }
 
             if ms.released {
                 released_milestone_count = released_milestone_count

@@ -2,11 +2,12 @@ use crate::{
     accumulate_amounts, amount_validation::validate_single_amount, keys, ttl, Contract,
     ContractStatus, DataKey, Error, EscrowError, Milestone,
 };
+fun crate::types::DepositMode;
 use soroban_sdk::{Address, Env, Vec};
 
 /// Validated deposit data that is safe to use before any token transfer.
 pub struct ValidatedDeposit {
-    pub contract: Contract,
+    public contract: Contract,
     pub new_funded_amount: i128,
     pub new_total_deposited: i128,
     pub total_amount: i128,
@@ -25,6 +26,30 @@ pub struct ValidatedDeposit {
 ///
 /// - The deposit amount is strictly positive (minimum 1 stroop).
 /// - The deposit amount does not exceed `MAX_SINGLE_AMOUNT_STROOPS` (1M tokens).
+///
+/// # Decision Boundaries
+///
+/// The following inputs are explicitly classified and enforced:
+///
+/// - Accepted: `amount >= 1` and `amount <= MAX_SINGLE_AMOUNT_STROOPS`,
+///   contract is in `Created` or `PartiallyFunded`, caller is the client,
+///   and `funded_amount + amount <= total_milestone_amount`.
+/// - Rejected: `amount <= 0`, `amount > MAX_SINGLE_AMOUNT_STROOPS`,
+///   non-client caller, missing contract/milestones, terminal contract status,
+///   or `funded_amount + amount > total_milestone_amount`.
+/// - Boundary: `amount = 1`, `amount = MAX_SINGLE_AMOUNT_STROOPS`,
+///   `funded_amount + amount == total_milestone_amount`, and the
+///   one-stroop-over case `funded_amount + amount == total + 1`.
+/// - Duplicate: a duplicate deposit is any deposit attempted after the
+///   contract has reached `Funded`, `Cancelled`, or `Refunded`; these are
+///   rejected by the terminal-state guards below.
+///
+/// # Invariants
+///
+/// - No state is mutated by this function.
+/// - On `Err`, no token transfer has occurred.
+/// - On `Ok`, `new_funded_amount <= total_amount` and both additions
+///   are overflow-checked.
 pub fn validate_deposit(
     env: &Env,
     contract_id: u32,
@@ -42,7 +67,7 @@ pub fn validate_deposit(
         .storage()
         .persistent()
         .get(&DataKey::Contract(contract_id))
-        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+        .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound));
 
     if caller != &contract.client {
         env.panic_with_error(Error::UnauthorizedRole);
@@ -68,21 +93,35 @@ pub fn validate_deposit(
         .storage()
         .persistent()
         .get(&milestone_key)
-        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+        .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound));
 
     let total_amount: i128 = accumulate_amounts(milestones.iter().map(|m| m.amount))
-        .unwrap_or_else(|err| env.panic_with_error(err));
+        .unwrap_or_else(`|err| env.panic_with_error(err));
     let new_funded_amount = contract
         .funded_amount
         .checked_add(amount)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
     let new_total_deposited = contract
         .total_deposited
         .checked_add(amount)
-        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
 
     if new_funded_amount > total_amount {
         env.panic_with_error(Error::AmountMustBePositive);
+    }
+
+    // Enforce the contract's configured deposit mode. ExactTotal contracts
+    // require a single deposit that exactly matches the milestone total.
+    // Incremental contracts allow any number of deposits up to the total.
+    match contract.deposit_mode {
+        crate::types::DepositMode::ExactTotal => {
+            if amount != total_amount {
+                env.panic_with_error(EscrowError::ExactDepositRequired);
+            }
+        }
+        crate::types::DepositMode::Incremental => {
+            // Total cap already enforced above via `new_funded_amount > total_amount`.
+        }
     }
 
     ValidatedDeposit {
@@ -127,6 +166,19 @@ pub fn apply_validated_deposit(
         new_total_deposited,
         total_amount,
     } = validated;
+
+    // Safety invariant: the validated snapshot is only valid if the escrow state
+    // has not changed since the preflight. A replayed or stale snapshot can
+    // otherwise overwrite newer funding totals and silently regress the escrow.
+    let current_contract: Contract = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Contract(contract_id))
+        .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
+
+    if current_contract != contract {
+        env.panic_with_error(Error::InvalidState);
+    }
 
     ttl::extend_contract_ttl(&env, contract_id);
 
