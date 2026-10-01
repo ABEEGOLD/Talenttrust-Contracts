@@ -79,7 +79,7 @@ pub(crate) fn validate_work_evidence_len(env: &Env, len: u32) {
 /// instead — see the module-level compatibility contract.
 ///
 /// # Panics
-/// - [`Error::InvalidContractId`] if `contract_id == 0`
+/// - `ContractNotFound` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::InvalidContractId);
@@ -170,7 +170,8 @@ pub(crate) fn require_initialized(env: &Env) -> bool {
 /// * `contract_id` - The contract ID to load
 ///
 /// # Panics
-/// - `ContractNotFound` if `contract_id` is 0 (reserved sentinel) or unknown
+/// - `ContractNotFound` if `contract_id` is 0
+/// - `ContractNotFound` if no contract exists for this ID
 ///
 /// # Returns
 /// The loaded `Contract` or panics with `ContractNotFound`
@@ -192,7 +193,8 @@ pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
 /// * `contract_id` - The contract ID whose milestones to load
 ///
 /// # Panics
-/// - `ContractNotFound` if `contract_id` is 0 (reserved sentinel) or unknown
+/// - `ContractNotFound` if `contract_id` is 0
+/// - `ContractNotFound` if no milestone vector exists for this contract
 ///
 /// # Returns
 /// The loaded milestone vector or panics with `ContractNotFound`
@@ -242,7 +244,7 @@ pub(crate) fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<cra
 /// * `check_finalized` - Whether to verify finalization state
 ///
 /// # Panics
-/// - `ContractNotFound` if `contract_id` is 0 (reserved sentinel) or unknown
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `ContractPaused` if `check_paused` is true and pause flag is set
 /// - `EmergencyActive` if `check_paused` is true and emergency flag is set
 /// - `AlreadyFinalized` if `check_finalized` is true and contract is finalized
@@ -460,7 +462,7 @@ pub(crate) fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// * `contract_id` - The contract ID to check
 ///
 /// # Panics
-/// - `ContractNotFound` if `contract_id` is 0 (reserved sentinel)
+/// - `ContractNotFound` if `contract_id` is 0
 /// - `AlreadyFinalized` if the contract has been finalized
 ///
 /// # Returns
