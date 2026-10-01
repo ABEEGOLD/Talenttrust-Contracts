@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Fuzz harness for escrow entrypoints.
 //!
 //! Covers three categories:
@@ -29,9 +30,6 @@
 //! `cargo test` runs this file automatically. No secrets or network access
 //! required. Runtime is bounded by `PROPTEST_CASES` (default 256).
 
-#![cfg(test)]
-#![cfg(test)]
-
 extern crate std;
 
 use proptest::prelude::*;
@@ -46,6 +44,8 @@ use crate::{
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn setup() -> (Env, EscrowClient<'static>) {
+    // SAFETY: EscrowClient borrows Env; we box Env so the address is stable for
+    // the lifetime of the test case.
     // SAFETY: EscrowClient borrows Env; we box Env so the address is stable for
     // the lifetime of the test case.
     let env = Box::leak(Box::new(Env::default()));
