@@ -18,6 +18,10 @@ fn refund_returns_an_unreleased_milestone() {
         escrow.get_contract(&fixture.escrow_id).status,
         ContractStatus::Funded
     );
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).released_milestones,
+        0
+    );
 }
 
 /// A completed fixture rejects refunds, preserving its terminal accounting state.
@@ -33,6 +37,10 @@ fn refund_rejects_completed_contract() {
     assert_contract_error(
         escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
         Error::InvalidState,
+    );
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Completed
     );
 }
 

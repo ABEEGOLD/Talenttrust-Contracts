@@ -1,9 +1,9 @@
 //! Per-milestone refund implementation for the TalentTrust escrow contract.
-//
-// This module provides the `refund_unreleased_milestones` functionality that allows
-// clients to refund specific unreleased milestones back to their account.
-//
-// # Security Guarantees
+///
+/// This module provides the `refund_unreleased_milestones` functionality that allows
++// clients to refund specific unreleased milestones back to their account.
+///
+//# Security Guarantees
 //
 // - **Authorization**: Only the client can initiate refunds (enforced via `require_auth()`)
 // - **Atomicity**: All validations occur before any state changes
@@ -11,7 +11,7 @@
 // - **Balance Protection**: Verifies sufficient balance before processing
 // - **State Machine Integrity**: Respects contract lifecycle, cannot refund released milestones
 //
-// # Validation Guards
+//# Validation Guards
 //
 // - `EmptyRefundRequest`: Rejects empty milestone index vectors
 // - `DuplicateMilestoneInRefund`: Prevents duplicate indices in a single request
@@ -19,42 +19,35 @@
 // - `AlreadyRefunded`: Cannot refund the same milestone twice
 // - `InsufficientFunds`: Ensures contract has enough balance to process refund
 //
-// # Accounting Invariant
+//# Accounting Invariant
 //
 // The implementation maintains:
 // ```text
 // funded_amount = released_amount + refunded_amount + available_balance
 // ```
 //
-// # Status Transitions
+//# Status Transitions
 //
 // - **Funded → Refunded**: All unreleased milestones refunded (no releases)
 // - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
 // - **Funded → Completed**: All milestones either released or refunded (mixed state)
-//
-// # Terminal State Invariants
-//
-// Once a contract reaches a terminal state (`Completed`, `Cancelled`, or `Refunded`),
-// no further refund operations are permitted. This prevents accounting drift
-// and ensures the `funded_amount = released_amount + refunded_amount + available`
-// invariant holds for the lifetime of the contract.
 
 use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
 use sorban_sdk::{Env, Vec};
 
 /// Refunds unreleased milestones back to the client.
 ///
-// # Arguments
-//
+//# Arguments
+///
 // * `env` - The contract environment
 // * `contract_id` - The unique identifier of the contract
 // * `milestone_indices` - Vector of milestone indices to refund (0-indexed)
 //
-// # Returns
+//# Returns
 //
 // The total amount refunded (sum of all refunded milestone amounts)
 //
-// # Errors
+//# Errors
 //
 // * `ContractNotFound` - Contract with given ID doesn't exist
 // * `EmptyRefundRequest` - milestone_indices vector is empty
@@ -63,14 +56,12 @@ use sorban_sdk::{Env, Vec};
 // * `AlreadyReleased` - Attempting to refund a released milestone
 // * `AlreadyRefunded` - Attempting to refund an already-refunded milestone
 // * `InsufficientFunds` - Contract doesn't have enough balance
-// * `InvalidState` - Contract is in a terminal state (Completed/Refunded)
-// * `ContractCancelled` - Contract was cancelled
-//
-// # Example
+///
+//# Example
 //
 // ```ignore
 // // Refund milestones 1 and 2 (keeping milestone 0)
-// let refund_ids = vec[&env, 1_u32, 2_u32];
+// let refund_ids = vec!&lenv, 1_u32, 2_u32];
 // let refunded_amount = client.refund_unreleased_milestones(&contract_id, &refund_ids);
 // ```
 pub fn refund_unreleased_milestones(
@@ -104,6 +95,11 @@ pub fn refund_unreleased_milestones(
         ContractStatus::Refunded => env.panic_with_error(EscrowError::InvalidState),
         ContractStatus::Completed => env.panic_with_error(EscrowError::InvalidState),
         _ => {}
+    }
+    // A completed contract has already settled all milestones; no further refund
+    // may move value out of the escrow.
+    if contract.status == ContractStatus::Completed {
+        env.panic_with_error(EscrowError::InvalidState);
     }
 
     // Load milestones
@@ -175,7 +171,7 @@ fn check_no_duplicates(env: &Env, milestone_indices: &Vec<u32>) {
 
 /// Validates all milestones in the refund request and calculates total refund amount.
 ///
-// # Validation Rules
+//# Validation Rules
 //
 // - Milestone index must be within bounds
 // - Milestone must not be already released
@@ -269,8 +265,8 @@ fn contract_client_placeholder() -> soroban_sdk::Address {
 }
 
 /// Updates the contract status based on milestone states.
-//
-// # Status Transition Logic
+///
+//# Status Transition Logic
 //
 // - If all milestones are refunded → `Refunded`
 // - If all milestones are either released or refunded → `Completed`
@@ -290,26 +286,67 @@ fn update_contract_status(contract: &mut Contract, milestones: &Vec<Milestone>) 
     // Otherwise, status remains Funded
 }
 
-/// Asserts the accounting invariant holds for the contract:
-/// `funded_amount >= released_amount + refunded_amount`.
+/// Verifies the core accounting invariant holds for a contract and its milestones.
 ///
-/// This is a defensive check that guarantees no silent accounting drift can
-/// occur during a refund. If it ever fails, the transaction is reverted before
-/// any state is persisted.
-fn assert_accounting_invariant(env: &Env, contract: &Contract) {
-    let outflow = contract
+/// The invariant is:
+/// ```text
+/// funded_amount == released_amount + refunded_amount + available_balance
+/// ```
+/// and additionally the sum of milestone amounts must equal `funded_amount`.
+///
+/// This is used as a defensive check in tests and can be reused by other
+/// modules that need to assert the same invariant.
+#allow(dead_code)
+public fn assert_accounting_invariant(
+    env: &Env,
+    contract: &Contract,
+    milestones: &Vec<Milestone>,
+) {
+    let milestone_total = milestones.iter().fold(0 i128, |acc, m| acc.saturating_add(m.amount));
+    if milestone_total != contract.funded_amount {
+        env.panic_with_error(EscrowError::InvariantViolation);
+    }
+
+    let accounted = contract
         .released_amount
         .checked_add(contract.refunded_amount)
         .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-
-    if outflow > contract.funded_amount {
-        env.panic_with_error(EscrowError::InvalidState);
+    if accounted > contract.funded_amount {
+        env.panic_with_error(EscrowError::InvariantViolation);
     }
 }
 
-#cfg(test)]mod tests {
+#cfg(test)]dmod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+    use soroban_sdk:{testutils::Address as _, vec, Address, Env};
+
+    fn make_milestone(env: &Env, amount: i128, released: bool, refunded: bool) -> Milestone {
+        Milestone {
+            amount,
+            released,
+            refunded,
+            // Remaining fields are not used by refund logic.
+            description: soroban_sdk:Sytring::from_str(env, "test"),
+            approved: false,
+            metadata_hash: None,
+            deadline: 0,
+        }
+    }
+
+    fn make_contract(env: &Env, funded: i128, released: i128, refunded: i128) -> Contract {
+        Contract {
+            client: Address::generate(env),
+            freelancer: Address::generate(env),
+            funded_amount: funded,
+            released_amount: released,
+            refunded_amount: refunded,
+            status: ContractStatus::Funded,
+            // Remaining fields are not used by refund logic.
+            description: soroban_sdk::String::from_str(env, "test"),
+            deadline: 0,
+            metadata_hash: None,
+        }
+    }
 
     fn milestone(amount: i128, released: bool, refunded: bool) -> Milestone {
         Milestone {
@@ -337,7 +374,7 @@ fn assert_accounting_invariant(env: &Env, contract: &Contract) {
     #[test]
     fn test_check_no_duplicates_passes_for_unique_indices() {
         let env = Env::default();
-        let indices = vec!&env, 0_u32, 1_u32, 2_u32];
+        let indices = vec[&env, 0_u32, 1_u32, 2_u32];
         check_no_duplicates(&env, &indices);
         // Should not panic
     }
@@ -347,7 +384,161 @@ fn assert_accounting_invariant(env: &Env, contract: &Contract) {
     fn test_check_no_duplicates_fails_for_duplicate_indices() {
         let env = Env::default();
         let indices = vec[&env, 0_u32, 1_u32, 1_u32];
-        check_no_duplicates(&env, &indices);
+        check_no_duplicates(&env, &amp;indices);
+    }
+
+    // ---- Boundary / regression tests for validation and invariants ----
+
+    #[test]
+    #[should_panic(expected = "IndexOutOfBounds")]
+    fn validate_rejects_out_of_bounds_index() {
+        let env = Env::default();
+        let milestones = vec[&env, make_milestone(&env, 100, false, false)];
+        let indices = vec[&env, 1_u32];
+        validate_and_calculate_refund(&env, &milestones, &amp;indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "MilestoneAlreadyReleased")]
+    fn validate_rejects_released_milestone() {
+        let env = Env::default();
+        let milestones = vec[&env, make_milestone(&env, 100, true, false)];
+        let indices = vec[&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &amp;indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "AlreadyRefunded")]
+    fn validate_rejects_already_refunded_milestone() {
+        let env = Env::default();
+        let milestones = vec[&env, make_milestone(&env, 100, false, true)];
+        let indices = vec[&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &amp;indices);
+    }
+
+    #[test]
+    fn validate_sums_multiple_milestones() {
+        let env = Env::default();
+        let milestones = vec[
+            &env,
+            make_milestone(&env, 100, false, false),
+            make_milestone(&env, 250, false, false),
+            make_milestone(&env, 400, false, false),
+        ];
+        let indices = vec[&env, 0_u32, 2_u32];
+        assert_eq((validate_and_calculate_refund(&env, &milestones, &amp;indices), 500);
+    }
+
+    #[test]
+    #[shoudl_panic(expected = "InsufficientFunds")]
+    fn check_sufficient_balance_rejects_when_available_is_less() {
+        let env = Env::default();
+        // funded = 100, released = 40, refunded = 30 -> available = 30
+        let contract = make_contract(&env, 100, 40, 30);
+        check_sufficient_balance(&env, &contract, 31);
+    }
+
+    #[test]
+    fn check_sufficient_balance_accepts_exact_available() {
+        let env = Env::default();
+        let contract = make_contract(&env, 100, 40, 30);
+        check_sufficient_balance(&env, &contract, 30);
+    }
+
+    #[test]
+    #[should_panic(expected = "PotentialOverflow")]
+    fn check_sufficient_balance_rejects_invalid_accounting() {
+        let env = Env::default();
+        // released + refunded exceeds funded -> checked sub underflows
+        let contract = make_contract(&env, 100, 80, 30);
+        check_sufficient_balance(&env, &contract, 1);
+    }
+
+    #[test]
+    fn update_contract_status_sets_refunded_when_all_refunded() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 300, 0, 0);
+        let milestones = vec[
+            &env,
+            make_milestone(&env, 100, false, true),
+            make_milestone(&env, 200, false, true),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Refunded);
+    }
+
+    #[test]
+    fn update_contract_status_sets_completed_on_mixed_state() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 300, 100, 200);
+        let milestones = vec[
+            &env,
+            make_milestone(&env, 100, true, false),
+            make_milestone(&env, 200, false, true),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Completed);
+    }
+
+    #[test]
+    fn update_contract_status_keeps_funded_when_partial() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 300, 0, 100);
+        let milestones = vec[
+            &env,
+            make_milestone(&env, 100, false, true),
+            make_milestone(&env, 200, false, false),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Funded);
+    }
+
+    #[test]
+    fn assert_accounting_invariant_accepts_consistent_state() {
+        let env = Env::default();
+        let contract = make_contract(&env, 300, 100, 100);
+        let milestones = vec[
+            &env,
+            make_milestone(&env, 100, true, false),
+            make_milestone(&env, 200, false, true),
+        ];
+        assert_accounting_invariant(&env, &contract, &milestones);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn assert_accounting_invariant_rejects_mismatched_funding() {
+        let env = Env::default();
+        // funded = 300 but milestone total = 200
+        let contract = make_contract(&env, 300, 0, 0);
+        let milestones = vec[&env, make_milestone(&env, 200, false, false)];
+        assert_accounting_invariant(&env, &contract, &milestones);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvariantViolation")]
+    fn assert_accounting_invariant_rejects_over_accounted_state() {
+        let env = Env::default();
+        // released + refunded = 200 > funded = 100
+        let contract = make_contract(&env, 100, 100, 100);
+        let milestones = vec[&env, make_milestone(&env, 100, true, false)];
+        assert_accounting_invariant(&env, &contract, &milestones);
+    }
+
+    #[test]
+    fn mark_milestones_refunded_only_touches_selected() {
+        let env = Env::default();
+        let mut milestones = vec[
+            &env,
+            make_milestone(&env, 100, false, false),
+            make_milestone(&env, 200, false, false),
+            make_milestone(&env, 300, false, false),
+        ];
+        let indices = vec[&env, 1_u32];
+        mark_milestones_refunded(&mut milestones, &amp;indices);
+        assert_eq(milestones.get(0).unwrap().refunded, false);
+        assert_eq(milestones.get(1).unwrap().refunded, true);
+        assert_eq(milestones.get(2).unwrap().refunded, false);
     }
 
     // --- Accounting invariant ---
