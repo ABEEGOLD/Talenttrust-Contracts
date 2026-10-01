@@ -19,10 +19,15 @@ use soroban_sdk:{
     testutils::Address as _, Events,
     vec, Address, Env, IntoVal, Symbol, TryFromVal, Val,
 };
+use soroban_sdk::FromVal;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Canonical topic symbol for dispute index events.  Off-chain indexers filter
+/// on this exact symbol; changing it is a breaking compatibility change.
+const DSP_INDEX_TOPIC: &str = "dsp_index";
 
 /// Create a funded contract with an arbiter, ready for dispute.
 /// Returns (client_addr, freelancer_addr, arbiter_addr, contract_id).
@@ -63,6 +68,23 @@ fn find_dsp_index_event(
         }
         None
     })
+}
+
+/// Decode and assert the exact `dsp_index` / `raised` payload layout.
+/// Returns the decoded tuple so callers can assert individual fields.
+fn decode_raised_payload(
+    env: &Env,
+    data: &Val,
+) -> (u32, Address, i128, i128, i128, u64) {
+    <(u32, Address, i128, i128, i128, u64)>::from_val(env, data)
+}
+
+/// Decode and assert the exact `dsp_index` / `settled` payload layout.
+fn decode_settled_payload(
+    env: &Env,
+    data: &Val,
+) -> (u32, u32, i128, i128, ContractStatus, u64) {
+    <(u32, u32, i128, i128, ContractStatus, u64)>::from_val(env, data)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +137,7 @@ fn raise_dispute_raised_event_payload_correctness() {
 
     // Decode the data tuple: (contract_id, caller, funded_amount, released_amount,
     //                         refunded_amount, timestamp)
-    let data_tuple: (u32, Address, i128, i128, i128, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_raised_payload(&env, &data);
 
     assert_eq!(data_tuple.0, contract_id, "contract_id mismatch");
     assert_eq!(data_tuple.1, client_addr, "caller mismatch");
@@ -151,8 +172,7 @@ fn resolve_dispute_full_refund_emits_dsp_index_settled_event() {
     assert!(event.is_some(), "dsp_index/settled event must be emitted");
 
     let (_topics, data) = event.unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.0, contract_id, "contract_id mismatch");
     assert_eq!(data_tuple.1, 0, "resolution_code for FullRefund should be 0");
@@ -187,8 +207,7 @@ fn resolve_dispute_full_payout_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.1, 2, "resolution_code for FullPayout should be 2");
     assert_eq!(data_tuple.2, 0, "client_payout should be zero");
@@ -225,8 +244,7 @@ fn resolve_dispute_partial_refund_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(
         data_tuple.1, 1,
@@ -269,8 +287,7 @@ fn resolve_dispute_split_emits_correct_settled_payload() {
 
     let settled_sym = symbol_short!("settled");
     let (_topics, data) = find_dsp_index_event(&env, &settled_sym).unwrap();
-    let data_tuple: (u32, u32, i128, i128, ContractStatus, u64) =
-        soroban_sdk::FromVal::from_val(&env, &data);
+    let data_tuple = decode_settled_payload(&env, &data);
 
     assert_eq!(data_tuple.1, 3, "resolution_code for Split should be 3");
     assert_eq!(data_tuple.2, 60, "client_payout should be 60");

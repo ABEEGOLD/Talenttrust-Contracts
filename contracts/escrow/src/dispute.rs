@@ -1,11 +1,12 @@
-//! Dispute payout arithmetic and final-status helpers.
+//! Dispute payout arithmetic, final-status helpers, and deterministic recovery.
 //!
 //! This module is intentionally storage-free. It computes how the currently
 //! available escrow balance should be split for a `DisputeResolution` and tells
 //! the root dispute entrypoint whether the contract should end as `Completed`
 //! or `Refunded`. ABI-compatible wrappers in the crate root delegate here;
-//! this module owns dispute authorization, state changes, events, and writes to
-//! `DataKey::Contract(contract_id)`.
+//! this module owns dispute metadata persistence and payout arithmetic. Dispute
+//! authorization, state changes, and events live in the crate root entrypoints
+//! that call into these helpers.
 
 use crate::{
     safe_add_amounts, types::DisputeMetadataV0, Contract, ContractStatus, DataKey, DisputeConfig,
@@ -210,6 +211,9 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
 // ---------------------------------------------------------------------------
 
 /// Persist dispute metadata for a contract.
+///
+/// Overwrites any existing record for `contract_id`. Callers that need
+/// idempotency must check [`get_dispute_storage_version`] first.
 pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
     env.storage()
         .persistent()
@@ -217,6 +221,8 @@ pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMet
 }
 
 /// Remove dispute metadata for a contract.
+///
+/// Safe to call when no record exists; the operation is a no-op in that case.
 pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
     env.storage()
         .persistent()
@@ -224,6 +230,9 @@ pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
 }
 
 /// Return the schema version of the stored dispute metadata, or 0 if none exists.
+///
+/// Returns `0` when no record is present, and [`DISPUTE_STORAGE_VERSION`]
+/// otherwise. This is the canonical way to detect the presence of a dispute.
 pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
     if env
         .storage()
