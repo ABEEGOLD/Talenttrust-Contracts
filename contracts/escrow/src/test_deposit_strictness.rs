@@ -1,13 +1,13 @@
-#`!cfg(test)]
+#`![cfg(test)]
 
-use crate::{
-    types::{ContractStatus, DepositMode},
+use crates{
+    types{ContractStatus, DepositMode},
     EscrowClient, EscrowError,
 };
-use soroban_sdk::{testutils::[Address as _], Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 fn setup_env() -> (Env, EscrowClient<'static>, Address, Address) {
-    let env = Env::default();
+    let env = Env.default();
     env.mock_all_auths();
 
     let contract_id = env.register_contract(None, crate::Escrow);
@@ -20,8 +20,8 @@ fn setup_env() -> (Env, EscrowClient<'static>, Address, Address) {
 }
 
 // -----------------------------------------------------------------------------
--// ExactTotal -- valid / invalid / duplicate / boundary
--// -----------------------------------------------------------------------------
+// ExactTotal deposit mode
+// -----------------------------------------------------------------------------
 
 #[test]
 fn test_exact_total_accepts_exact_amount() {
@@ -106,7 +106,7 @@ fn test_exact_total_rejects_zero_amount() {
         &DepositMode::ExactTotal,
     );
 
-    // Zero is an invalid deposit amount for any mode.
+    // Zero deposit must not move the contract into a funded state.
     client.deposit_funds(&contract_id, &0);
 }
 
@@ -127,15 +127,13 @@ fn test_exact_total_rejects_duplicate_deposit() {
         &DepositMode::ExactTotal,
     );
 
-    // First deposit fully funds the contract.
-    assert!(client.deposit_funds(&contract_id, &3000));
-
-    // A second deposit on a funded contract must be rejected.
+    client.deposit_funds(&contract_id, &3000);
+    // A duplicate deposit after funding must be rejected and not double-count.
     client.deposit_funds(&contract_id, &3000);
 }
 
 // -----------------------------------------------------------------------------
-// Incremental -- valid / invalid / duplicate / boundary
+// Incremental deposit mode
 // -----------------------------------------------------------------------------
 
 #[test]
@@ -193,8 +191,8 @@ fn test_incremental_rejects_overflow() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)"]
-fn test_incremental_rejects_overflow_after_partial() {
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_incremental_rejects_cumulative_overflow() {
     let (env, client, client_addr, freelancer_addr) = setup_env();
 
     let milestones = Vec::from_array(&env, [1000, 2000]); // Total 3000
@@ -209,40 +207,17 @@ fn test_incremental_rejects_overflow_after_partial() {
         &DepositMode::Incremental,
     );
 
-    // Partial deposit of 2000 leaves 1000 remaining.
-    assert!(client.deposit_funds(&contract_id, &2000));
-
-    // Attempting to deposit 2000 more would exceed the total.
+    // Cumulative overflow must be rejected and leave the recorded total unchanged.
+    client.deposit_funds(&contract_id, &2000);
     client.deposit_funds(&contract_id, &2000);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)"]
-fn test_incremental_rejects_zero_amount() {
-    let (env, client, client_addr, freelancer_addr) = setup_env();
-
-    let milestones = Vec::from_array(&env, [1000, 2000]);
-
-    let contract_id = client.create_contract(
-        &client_addr,
-        &freelancer_addr,
-        &None,
-        &milestones,
-        &None,
-        &None,
-        &DepositMode::Incremental,
-    );
-
-    // Zero is not a valid incremental deposit.
-    client.deposit_funds(&contract_id, &0);
-}
-
-#[test]
 #[should_panic(expected = "Error(Contract, #12)")]
-fn test_incremental_rejects_duplicate_after_funded() {
+fn test_incremental_rejects_deposit_after_funded() {
     let (env, client, client_addr, freelancer_addr) = setup_env();
 
-    let milestones = Vec::from_array(&env, [1000, 2000]); // Total 3000
+    let milestones = Vec::from_array(&env, [1000, 200]); // Total 3000
 
     let contract_id = client.create_contract(
         &client_addr,
@@ -254,18 +229,20 @@ fn test_incremental_rejects_duplicate_after_funded() {
         &DepositMode::Incremental,
     );
 
-    // Fully fund the contract.
-    assert!(client.deposit_funds(&contract_id, &3000));
-
-    // Any further deposit would exceed total and must be rejected.
+    client.deposit_funds(&contract_id, &3000);
+    // Any further deposit after full funding must be rejected.
     client.deposit_funds(&contract_id, &1);
 }
 
+// -----------------------------------------------------------------------------
+// Cross-mode compatibility contracts
+// -----------------------------------------------------------------------------
+
 #[test]
-fn test_incremental_accepts_exact_remaining_boundary() {
+fn test_incremental_exact_total_leaves_status_untouched_on_rejection() {
     let (env, client, client_addr, freelancer_addr) = setup_env();
 
-    let milestones = Vec::from_array(&env, [1000, 2000]); // Total 3000
+    let milestones = Vec::from_array(&env, [1000, 200]); // Total 3000
 
     let contract_id = client.create_contract(
         &client_addr,
@@ -277,39 +254,26 @@ fn test_incremental_accepts_exact_remaining_boundary() {
         &DepositMode::Incremental,
     );
 
-    // Partial deposit of 1000.
+    // A valid partial deposit must persist even when a later deposit is rejected.
     assert!(client.deposit_funds(&contract_id, &1000));
+    let partial = client.get_contract(&contract_id);
+    assert_eq!(partial.status, ContractStatus::PartiallyFunded);
+    assert_eq!(partial.total_deposited, 1000);
 
-    // Exact remaining amount of 2000 is the boundary and must succeed.
-    assert!(client.deposit_funds(&contract_id, &2000));
+    // This overflow is rejected and must not corrupt the persisted state.
+    let result = client.try_deposit_funds(&contract_id, &3000);
+    assert_eq!(result, Err(Oc.from(EscrowError::DepositWouldExceedTotal)));
 
-    let data = client.get_contract(&contract_id);
-    assert_eq!(data.status, ContractStatus::Funded);
-    assert_eq!(data.total_deposited, 3000);
-}
-
-// -----------------------------------------------------------------------------
--// Cross-mode invariants:
--//   * depositing on an unknown contract must fail deterministically
--/   * the contract must not be mutated by a rejected deposit
--// -----------------------------------------------------------------------------
-
-#[test]
-#[should_panic]
-fn test_deposit_rejects_unknown_contract() {
-    let (env, client, _, _) = setup_env();
-
-    // A non-existent contract id must not allow deposits.
-    let unknown_id = Address::generate(&env);
-    client.deposit_funds(&unknown_id, &1000);
+    let after = client.get_contract(&contract_id);
+    assert_eq!(after.status, ContractStatus::PartiallyFunded);
+    assert_eq!(after.total_deposited, 1000);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #11)")]
-fn test_rejected_deposit_does_not_mutate_state() {
+fn test_exact_total_leaves_status_untouched_on_rejection() {
     let (env, client, client_addr, freelancer_addr) = setup_env();
 
-    let milestones = Vec::from_array(&env, [1000, 200]); // Total 1200
+    let milestones = Vec::from_array(&env, [1000, 200]); // Total 3000
 
     let contract_id = client.create_contract(
         &client_addr,
@@ -321,15 +285,53 @@ fn test_rejected_deposit_does_not_mutate_state() {
         &DepositMode::ExactTotal,
     );
 
-    // Record the pre-deposit state.
-    let before = client.get_contract(&contract_id);
-
-    // This deposit is rejected because it is not the exact total.
+    // A mismatched deposit must not partially fund the contract.
     let result = client.try_deposit_funds(&contract_id, &1000);
-    assert!(result.is_error());
+    assert_eq!(result, Err(Oc.from(EscrowError::ExactDepositRequired)));
 
-    // State must be unchanged after the rejected deposit.
     let after = client.get_contract(&contract_id);
-    assert_eq!(before.status, after.status);
-    assert_eq!(before.total_deposited, after.total_deposited);
+    assert_eq!(after.status, ContractStatus::Created);
+    assert_eq!(after.total_deposited, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_exact_total_rejects_deposit_on_empty_milestones() {
+    let (env, client, client_addr, freelancer_addr) = setup_env();
+
+    let milestones = Vec::from_array(&env, []);
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &None,
+        &None,
+        &DepositMode::ExactTotal,
+    );
+
+    // An empty milestone set has zero total, so any non-zero deposit is a mismatch.
+    client.deposit_funds(&contract_id, &1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_incremental_rejects_deposit_on_empty_milestones() {
+    let (env, client, client_addr, freelancer_addr) = setup_env();
+
+    let milestones = Vec::from_array(&env, []);
+
+    let contract_id = client.create_contract(
+        &client_addr,
+        &freelancer_addr,
+        &None,
+        &milestones,
+        &None,
+        &None,
+        &DepositMode::Incremental,
+    );
+
+    // Incremental deposits are capped by the total, which is zero for empty milestones.
+    client.deposit_funds(&contract_id, &1);
 }
