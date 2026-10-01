@@ -249,7 +249,7 @@ fn request_with_invalid_max_milestones_rejected() {
     let (client, _) = new_client(&env);
 
     // 0 milestones is below MIN_MAX_MILESTONES.
-    let bad_kind = GovernanceProposalKind::SetMaxMilestones(0);
+    let bad_kind = GovernanceProposalKind::SetMaxMilestones(MIN_MAX_MILESTONES.saturating_sub(1));
     let result = client.try_request_governance_proposal(&bad_kind);
     assert_err(result, Error::LimitOutOfRange);
 }
