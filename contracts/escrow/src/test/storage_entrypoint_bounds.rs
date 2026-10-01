@@ -17,6 +17,7 @@
 //!   - `rollback_dispute`           — contract_id != 0
 //!   - `deposit_funds`              — amount > 0
 //!   - `create_contract`            — milestone count in [1, MAX_MILESTONES]
+//!   - `set_governed_params`        — fee_bps in [0, MAX_FEE_BPS]
 
 #![cfg(test)]
 
@@ -159,6 +160,7 @@ fn set_governed_params_rejects_i128_min() {
     }
 }
 
+/// fee_bps = 0 must be accepted (lower boundary).
 /// fee_bps > MAX_FEE_BPS must still be rejected (existing validation preserved).
 #[test]
 fn set_governed_params_rejects_fee_over_max() {
@@ -293,6 +295,7 @@ fn set_reputation_config_rejects_max_below_min() {
     }
 }
 
+/// max_rating = 10 (upper boundary) must be accepted.
 /// max_rating > 10 must be rejected.
 #[test]
 fn set_reputation_config_rejects_max_rating_over_10() {
@@ -582,3 +585,4 @@ fn regression_set_reputation_config_multiple_updates() {
     assert_eq!(cfg.max_rating, 10);
     assert_eq!(cfg.max_comment_bytes, 1_000);
 }
+

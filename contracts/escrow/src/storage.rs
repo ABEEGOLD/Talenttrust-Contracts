@@ -38,6 +38,39 @@
 use crate::{Contract, DataKey, Error, EscrowError};
 use soroban_sdk::{Env, Vec};
 
+/// Maximum number of milestones allowed per contract.
+///
+/// This bound prevents unbounded storage growth and keeps iteration costs
+/// deterministic for all callers. It is enforced at the storage boundary so
+/// that no entrypoint can bypass it.
+pub(crate) const MAX_MILESTONES: u32 = 128;
+
+/// Maximum length (in bytes) of a milestone work-evidence reference.
+///
+/// Evidence is stored as an opaque reference (e.g. a content hash or URI).
+/// Bounding its size prevents storage bloat and keeps validation deterministic.
+pub(crate) const MAX_WORK_EVIDENCE_LEN: u32 = 256;
+
+/// Validate that a milestone count is within the allowed range.
+///
+/// # Panics
+/// - `InvalidMilestoneCount` if `count == 0` or `count > MAX_MILESTONES`
+pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
+    if count == 0 || count > MAX_MILESTONES {
+        env.panic_with_error(EscrowError::InvalidMilestoneCount);
+    }
+}
+
+/// Validate that a work-evidence reference length is within bounds.
+///
+/// # Panics
+/// - `InvalidWorkEvidence` if `len > MAX_WORK_EVIDENCE_LEN`
+pub(crate) fn validate_work_evidence_len(env: &Env, len: u32) {
+    if len > MAX_WORK_EVIDENCE_LEN {
+        env.panic_with_error(EscrowError::InvalidWorkEvidence);
+    }
+}
+
 /// Validate that contract_id is within numeric bounds (non-zero).
 ///
 /// This is the **entrypoint preamble** guard: it rejects the reserved id `0` as
@@ -67,6 +100,37 @@ pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
 fn require_nonzero_contract_id(env: &Env, contract_id: u32) {
     if contract_id == 0 {
         env.panic_with_error(Error::ContractNotFound);
+    }
+}
+
+/// Validate that a milestone vector is well-formed and within bounds.
+///
+/// Enforces the invariants that must hold for every stored milestone vector:
+/// - the vector is non-empty and does not exceed [`MAX_MILESTONES`]
+/// - each milestone has a non-zero `amount`
+/// - each milestone's `funded_amount` does not exceed its `amount`
+/// - each milestone's `refunded_amount` does not exceed its `funded_amount`
+/// - any `work_evidence` reference is within [`MAX_WORK_EVIDENCE_LEN`]
+///
+/// # Panics
+/// - `InvalidMilestoneCount` if the vector length is out of range
+/// - `InvalidMilestoneAmount` if an amount invariant is violated
+/// - `InvalidWorkEvidence` if an evidence reference is too long
+pub(crate) fn validate_milestones(env: &Env, milestones: &Vec<crate::Milestone>) {
+    validate_milestone_count(env, milestones.len());
+    for milestone in milestones.iter() {
+        if milestone.amount == 0 {
+            env.panic_with_error(EscrowError::InvalidMilestoneAmount);
+        }
+        if milestone.funded_amount > milestone.amount {
+            env.panic_with_error(EscrowError::InvalidMilestoneAmount);
+        }
+        if milestone.refunded_amount > milestone.funded_amount {
+            env.panic_with_error(EscrowError::InvalidMilestoneAmount);
+        }
+        if let Some(evidence) = &milestone.work_evidence {
+            validate_work_evidence_len(env, evidence.len());
+        }
     }
 }
 
@@ -141,6 +205,26 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
         .persistent()
         .get(&milestone_key)
         .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
+}
+
+/// Persist a milestone vector after validating its invariants.
+///
+/// This is the canonical write path for milestones. Routing all writes through
+/// this helper guarantees that the invariants checked by [`validate_milestones`]
+/// hold for every stored vector, so that [`load_milestones`] can rely on them.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `InvalidMilestoneCount` if the vector length is out of range
+/// - `InvalidMilestoneAmount` if an amount invariant is violated
+/// - `InvalidWorkEvidence` if an evidence reference is too long
+pub(crate) fn store_milestones(env: &Env, contract_id: u32, milestones: &Vec<crate::Milestone>) {
+    validate_contract_id_bounds(env, contract_id);
+    validate_milestones(env, milestones);
+    let milestone_key = Symbol::new(env, "milestones");
+    env.storage()
+        .persistent()
+        .set(&(DataKey::Contract(contract_id), milestone_key), milestones);
 }
 
 /// Load a contract, optionally with precondition checks for mutation.
@@ -263,6 +347,51 @@ pub(crate) fn require_pause_scope(env: &Env, target: &crate::PauseTarget) {
             _ => {} // Non-overlapping scope: allow
         }
     }
+}
+
+/// Validate that a contract's monetary invariants hold.
+///
+/// Enforces the accounting identities that must hold for every stored contract:
+/// - `released_amount + refunded_amount <= total_deposited`
+/// - `funded_amount <= total_deposited`
+/// - `released_amount <= funded_amount`
+///
+/// These checks make silent data loss impossible: any state transition that
+/// would violate them is rejected at the storage boundary.
+///
+/// # Panics
+/// - `InvalidContractAmounts` if any invariant is violated
+pub(crate) fn validate_contract_amounts(env: &Env, contract: &Contract) {
+    let released_plus_refunded = contract
+        .released_amount
+        .checked_add(contract.refunded_amount)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidContractAmounts));
+    if released_plus_refunded > contract.total_deposited {
+        env.panic_with_error(EscrowError::InvalidContractAmounts);
+    }
+    if contract.funded_amount > contract.total_deposited {
+        env.panic_with_error(EscrowError::InvalidContractAmounts);
+    }
+    if contract.released_amount > contract.funded_amount {
+        env.panic_with_error(EscrowError::InvalidContractAmounts);
+    }
+}
+
+/// Persist a contract after validating its monetary invariants.
+///
+/// This is the canonical write path for contracts. All state transitions that
+/// mutate a contract must route through this helper so that the invariants
+/// checked by [`validate_contract_amounts`] hold for every stored contract.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `InvalidContractAmounts` if any monetary invariant is violated
+pub(crate) fn store_contract(env: &Env, contract_id: u32, contract: &Contract) {
+    validate_contract_id_bounds(env, contract_id);
+    validate_contract_amounts(env, contract);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Contract(contract_id), contract);
 }
 
 /// Consume the next expected admin nonce, rejecting stale or future values.

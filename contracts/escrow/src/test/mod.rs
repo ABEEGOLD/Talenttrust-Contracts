@@ -44,6 +44,7 @@ mod security;
 mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
+mod storage_validation;
 mod event_assertions;
 mod lifecycle_invariants;
 mod finalize_invariants;
