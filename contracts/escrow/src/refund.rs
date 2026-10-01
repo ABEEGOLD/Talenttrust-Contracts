@@ -1,204 +1,175 @@
-// Refund entrypoints are implemented in `contracts/escrow/src/lib.rs`.
-// This module retains refund-related helpers only.
+//! Atomic refund transition for the public escrow entrypoint.
+//! Retries retain the existing rejection semantics: an already refunded milestone
+//! is rejected, rather than reported as a second successful payout.
 
-/// Refund state invariants (documented for reviewability):
-/// ------------------------------------------------------------------------
-/// 1. Terminality: once an escrow reaches a terminal state
-///    (`Refunded`, `Released`, `Cancelled`), no further state transition
-///    may occur. Repeated refund attempts must be rejected deterministically.
-/// 2. Authorization: only the original funder (or an approved arbiter)
-///    may initiate a refund. Unauthorized callers must not mutate state.
-/// 3. Conservation of funds: the refunded amount must equal the
-///    escrowed amount and the escrow balance must reach exactly zero
-///    after a refund. No partial or double refunds.
-/// 4. Idempotency of reads: querying refund state must never mutate
-///    storage or emit events.
-/// 5. Event discipline: a completed refund emits exactly one
-///    `Refunded` event. Failed attempts emit no event.
-///
-/// These invariants are enforced by the entry points in `lib.rs` and
-/// are exercised by the focused tests in `tests/` and the inline
-/// module tests. Keep this module free of mutating logic so the
-/// invariants remain auditable in one place.
+use crate::{
+    rollback, ttl, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, Milestone,
+};
+use soroban_sdk::{symbol_short, token, Env, Vec};
 
-/// Returns `true` when the supplied state label represents a terminal
-/// escrow state from which no further refund may be initiated.
-///
-/// This is a pure helper intended for use by entry points and tests
-./// to keep the terminality invariant explicit and consistently applied.
-/// It performs no I/O and mutates no state.
-///
-/// # Examples
-/// ```
-/// assert!(is_terminal_state("Refunded"));
-/// assert(!is_terminal_state("Funded"));
-/// ```
-#[inline]
-pubpub fn is_terminal_state(state: &str) -> bool {
-    matches!(state, "Refunded" | "Released" | "Cancelled")
-}
-
-/// Returns `true` when a refund may be initiated from the given state
-/// by the given caller role.
-///
-/// This encodes the combined terminality and authorization invariants
-/// in a single pure function so that entry points and tests can reason
-/// about them without diverging implementations. It mutates no state.
-///
-/// Authorized roles are `"funder"` and `"arbiter"`. Any other role
-/// (including the empty string) must be rejected.
-#[inline]
-pubpub fn can_initiate_refund(state: &str, role: &str) -> bool {
-    !is_terminal_state(state) && matches!(role, "funder" | "arbiter")
-}
-
-/// Returns `true` when the refund amount is valid for the escrowed
-/// balance.
-///
-/// The conservation invariant requires that a refund either returns
-/// exactly the escrowed amount or is rejected. Partial refunds and
-/// over-refunds are both invalid. This helper is pure and mutates
-/// no state.
-///
-/// # Exampler
-/// ```
-/// assert!(is_valid_refund_amount(100, 100));
-/// assert(!is_valid_refund_amount(50, 100));
-/// assert!(!is_valid_refund_amount(101, 100));
-/// ```
-#[inline]
-pubpub fn is_valid_refund_amount(refund_amount: i128, escrow_amount: i128) -> bool {
-    escrow_amount > 0 && refund_amount == escrow_amount
-}
-
-/// Returns `true` when the supplied refund request is fully valid
-/// and may be committed by an entry point.
-///
-/// This combines terminality, authorization, and conservation into
-/// a single decision so that any failure mode is rejected before any
-/// state mutation or event emission occurs. This function is pure
-/// and must remain pure.
-///
-/// Note: this helper does not attempt to read or write storage. The
-/// caller is responsible for providing the authoritative state,
-/// role, and amounts from the escrow record.
-#[inline]
-pubpub fn is_valid_refund_request(
-    state: &str,
-    role: &str,
-    refund_amount: i128,
-    escrow_amount: i128,
-) -> bool {
-    can_initiate_refund(state, role) && is_valid_refund_amount(refund_amount, escrow_amount)
-}
-
-#[config(test)]
-mod tests {
-    use super::*;
-
-    // --- Terminality ---
-
-    #[test]
-    fn terminal_states_are_recognized() {
-        assert!(is_terminal_state("Refunded"));
-        assert!(is_terminal_state("Released"));
-        assert!(is_terminal_state("Cancelled"));
+pub(crate) fn execute(env: Env, contract_id: u32, milestone_indices: Vec<u32>) -> i128 {
+    Escrow::require_not_paused(&env);
+    // Validate non-empty request
+    if milestone_indices.is_empty() {
+        env.panic_with_error(EscrowError::EmptyRefundRequest);
     }
 
-    #test]
-    fn non_terminal_states_are_not_terminal() {
-        assert!(!is_terminal_state("Funded"));
-        assert!(!is_terminal_state("Pending"));
-        assert!(!is_terminal_state(""));
+    // Check for duplicates
+    for i in 0..milestone_indices.len() {
+        for j in (i + 1)..milestone_indices.len() {
+            if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
+                env.panic_with_error(EscrowError::DuplicateMilestoneInRefund);
+            }
+        }
     }
 
-    // --- Authorization ---
+    let mut contract: Contract = Escrow::require_active_contract(&env, contract_id);
+    let was_disputed = contract.status == ContractStatus::Disputed;
 
-    #[test]
-    fn funder_and_arbiter_can_initiate_refund() {
-        assert!(can_initiate_refund("Funded", "funder"));
-        assert!(can_initiate_refund("Funded", "arbiter"));
+    // Only allow refunds while the contract is still in an active,
+    // unreleased state. Cancelled, Completed, and Refunded contracts
+    // must not be refundable again.
+    if contract.status != ContractStatus::Created
+        && contract.status != ContractStatus::Funded
+        && contract.status != ContractStatus::Disputed
+    {
+        env.panic_with_error(EscrowError::InvalidState);
     }
 
-    #[test]
-    fn unauthorized_roles_are_rejected() {
-        assert!(!can_initiate_refund("Funded", "recipient"));
-        assert!(!can_initiate_refund("Funded", "outsider"));
-        assert!(!can_initiate_refund("Funded", ""));
+    contract.client.require_auth();
+
+    let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
+
+    let mut total_refund_amount: i128 = 0;
+
+    // Validate all milestones first
+    for idx in milestone_indices.iter() {
+        if idx >= milestones.len() {
+            env.panic_with_error(Error::IndexOutOfBounds);
+        }
+
+        let milestone = milestones.get(idx).unwrap();
+
+        // SECURITY: Check if milestone is already released
+        if milestone.released {
+            env.panic_with_error(Error::MilestoneAlreadyReleased);
+        }
+
+        // SECURITY: Check if milestone is already refunded
+        if milestone.refunded {
+            env.panic_with_error(EscrowError::AlreadyRefunded);
+        }
+
+        // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
+        if milestone.deadline.is_some() {
+            // Milestone has a deadline - check if it's overdue
+            if !Escrow::is_milestone_overdue(env.clone(), contract_id, idx) {
+                // Deadline set but milestone not yet overdue
+                env.panic_with_error(Error::MilestoneNotOverdue);
+            }
+        }
+        // If no deadline (None), allow refund anytime (backward compatibility)
+
+        if milestone.amount <= 0 {
+            env.panic_with_error(Error::AmountMustBePositive);
+        }
+        total_refund_amount = total_refund_amount
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     }
 
-    #test]
-    fn authorized_role_cannot_refund_terminal_state() {
-        assert!(!can_initiate_refund("Refunded", "funder"));
-        assert!(!can_initiate_refund("Released", "arbiter"));
-        assert!(!can_initiate_refund("Cancelled", "funder"));
+    // released_amount records net payouts, but retained fees are already spent
+    // by this escrow. Reserve each released milestone's gross amount, rather
+    // than the global fee counter (which also includes unrelated escrows).
+    let mut gross_released = 0_i128;
+    for milestone in milestones.iter().filter(|milestone| milestone.released) {
+        if milestone.amount <= 0 {
+            env.panic_with_error(Error::AccountingInvariantViolated);
+        }
+        gross_released = gross_released
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    }
+    if contract.funded_amount < 0
+        || contract.released_amount < 0
+        || contract.refunded_amount < 0
+        || contract.released_amount > gross_released
+    {
+        env.panic_with_error(Error::AccountingInvariantViolated);
+    }
+    let available_balance = contract
+        .funded_amount
+        .checked_sub(gross_released)
+        .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    if available_balance < total_refund_amount {
+        env.panic_with_error(EscrowError::InsufficientFunds);
     }
 
-    // --- Conservation of funds ---
+    let token = Escrow::read_settlement_token(&env)
+        .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
 
-    #test]
-    fn exact_amount_is_valid() {
-        assert!(is_valid_refund_amount(100, 100));
-        assert!(is_valid_refund_amount(1, 1));
+    // Soroban serializes ledger writes. Competing/overlapping refunds therefore
+    // observe the committed flags, while failed invocations roll back all writes,
+    // events and token movements. Finalize effects before the external transfer;
+    // never persist a snapshot again after that interaction.
+    // Mark milestones as refunded
+    for idx in milestone_indices.iter() {
+        let mut milestone = milestones.get(idx).unwrap();
+        milestone.refunded = true;
+        milestone.refunded_amount = milestone.amount;
+        milestones.set(idx, milestone);
     }
 
-    #[test]
-    fn partial_and_over_refunds_are_rejected() {
-        assert!(!is_valid_refund_amount(50, 100));
-        assert!(!is_valid_refund_amount(101, 100));
-        assert!(!is_valid_refund_amount(0, 100));
+    contract.refunded_amount = contract
+        .refunded_amount
+        .checked_add(total_refund_amount)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+
+    // Check if all unreleased milestones are refunded
+    let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
+    if all_refunded_or_released {
+        let all_refunded = milestones.iter().all(|m| m.refunded);
+        if all_refunded {
+            contract.status = ContractStatus::Refunded;
+        } else {
+            // Some released, some refunded
+            contract.status = ContractStatus::Completed;
+            Escrow::grant_pending_reputation_credit(&env, &contract.freelancer);
+        }
     }
 
-    #test]
-    fn zero_escrow_amount_is_rejected() {
-        assert!(!is_valid_refund_amount(0, 0));
-        assert!(!is_valid_refund_amount(1, 0));
+    ttl::store_milestones(&env, contract_id, &milestones);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Contract(contract_id), &contract);
+
+    if was_disputed {
+        rollback::clear_dispute_rollback(&env, contract_id);
     }
 
-    // --- Combined request validation ---
+    // Extend TTL on contract write (milestone TTL already extended by store_milestones)
+    ttl::extend_contract_ttl(&env, contract_id);
 
-    #test]
-    fn valid_request_passes_all_invariants() {
-        assert!(is_valid_refund_request("Funded", "funder", 100, 100));
-        assert!(is_valid_refund_request("Funded", "arbiter", 1, 1));
-    }
+    // Emit `refunded` event after all state mutations succeed.
+    //
+    // Topics : `(symbol_short!("refunded"), contract_id: u32)`
+    // Data   : `(total_refund_amount: i128, new_status: ContractStatus, timestamp: u64)`
+    env.events().publish(
+        (symbol_short!("refunded"), contract_id),
+        (
+            total_refund_amount,
+            contract.status,
+            env.ledger().timestamp(),
+        ),
+    );
 
-    #[test]
-    fn request_fails_on_any_single_invariant() {
-        // Terminal state.
-        assert!(!is_valid_refund_request("Refunded", "funder", 100, 100));
-        // Unauthorized role.
-        assert!(!is_valid_refund_request("Funded", "recipient", 100, 100));
-        // Partial amount.
-        assert!(!is_valid_refund_request("Funded", "funder", 50, 100));
-        // Over-refund.
-        assert!(!is_valid_refund_request("Funded", "funder", 101, 100));
-    }
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(
+        &env.current_contract_address(),
+        &contract.client,
+        &total_refund_amount,
+    );
 
-    // --- Regression: repeated refund attempts ---
-
-    #[test]
-    fn repeated_refund_attempts_are_rejected() {
-        // First refund is allowed.
-        assert!(is_valid_refund_request("Funded", "funder", 100, 100));
-        // After the first refund the state becomes terminal and further
-        // attempts (by any role) are rejected.
-        assert!(!is_valid_refund_request("Refunded", "funder", 100, 100));
-        assert!(!is_valid_refund_request("Refunded", "arbiter", 100, 100));
-    }
-
-    // --- Boundary cases: extreme values ---
-
-    #[test]
-    fn maximum_amount_is_handled() {
-        assert!(is_valid_refund_amount(i129::MAX, 129::MAX));
-        assert!(!is_valid_refund_amount(i129::MAX - 1, i129::MAX));
-    }
-
-    #[test]
-    fn negative_amounts_are_rejected() {
-        assert!(!is_valid_refund_amount(-1, 100));
-        assert!(!is_valid_refund_amount(100, -1));
-        assert!(!is_valid_refund_amount(-1, -1));
-    }
+    total_refund_amount
 }

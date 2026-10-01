@@ -17,6 +17,7 @@
 //! | `approvals` | Temporary milestone release approvals and release-authorization checks. | Temporary `DataKey::MilestoneApprovals(contract_id, milestone_index)`; reads `Contract(id)` and `(Contract(id), "milestones")`. |
 //! | `deposit` | Deposit preflight and post-transfer accounting used by `deposit_funds`. | `DataKey::Contract(contract_id)` and `(DataKey::Contract(contract_id), "milestones")`. |
 //! | `finalize` | Immutable finalization records, finalization guards, and final contract summaries. | `DataKey::Finalization(contract_id)`; reads `Contract(id)`, `(Contract(id), "milestones")`, `Paused`, and `Emergency`. |
+//! | `refund` | Atomic public refund transition, checked per-contract funds reservation and state-before-transfer persistence. | `Contract(id)`, milestone vector, dispute rollback and reputation credits. |
 //! | `migration` | Client migration proposals, acceptance checks, cancellation, and pending-migration reads. | Temporary `DataKey::PendingClientMigration(contract_id)`; reads and updates `DataKey::Contract(contract_id)`. |
 //! | `rollback` | Guarded rollback of unchanged, unresolved disputes. | `DataKey::DisputeRollback(contract_id)`; reads and updates `DataKey::Contract(contract_id)` and its milestones. |
 //! | `ttl` | TTL constants plus helpers for temporary and persistent storage renewal. | Extends caller-provided keys, especially `Contract(id)`, `(Contract(id), "milestones")`, `NextContractId`, participant indexes, approvals, and migrations. |
@@ -85,7 +86,7 @@ mod migration;
 mod milestone_transitions;
 mod milestones;
 pub mod milestones_consts;
-mod proptest;
+mod refund;
 mod refund_impl;
 mod release;
 mod reputation;
@@ -1801,212 +1802,7 @@ impl Escrow {
         contract_id: u32,
         milestone_indices: Vec<u32>,
     ) -> i128 {
-        Self::require_initialized(&env);
-        Self::require_not_paused(&env);
-        // Validate non-empty request
-        if milestone_indices.is_empty() {
-            env.panic_with_error(EscrowError::EmptyRefundRequest);
-        }
-
-        // Check for duplicates
-        for i in 0..milestone_indices.len() {
-            for j in (i + 1)..milestone_indices.len() {
-                if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
-                    env.panic_with_error(EscrowError::DuplicateMilestoneInRefund);
-                }
-            }
-        }
-
-        let mut contract: Contract = Self::require_active_contract(&env, contract_id);
-        let was_disputed = contract.status == ContractStatus::Disputed;
-        Self::require_not_finalized(&env, contract_id);
-
-        // Only allow refunds while the contract is still in an active,
-        // unreleased state. Cancelled, Completed, and Refunded contracts
-        // must not be refundable again.
-        if contract.status != ContractStatus::Created
-            && contract.status != ContractStatus::Funded
-            && contract.status != ContractStatus::Disputed
-        {
-            env.panic_with_error(EscrowError::InvalidState);
-        }
-
-        contract.client.require_auth();
-
-        // Load accumulated protocol fees once. These fees are commingled with
-        // the escrow's SAC balance and must be excluded from the refundable
-        // pool, matching the accounting used by `release_milestone` and
-        // `get_remaining_balance`.
-        let accumulated_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AccumulatedProtocolFees)
-            .unwrap_or(0);
-
-        let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
-
-        if let Some(versions) = &expected_versions {
-            if versions.len() != milestone_indices.len() {
-                env.panic_with_error(Error::InvalidVersionCount);
-            }
-        }
-
-        let mut total_refund_amount: i128 = 0;
-
-        // Validate all milestones first
-        for position in 0..milestone_indices.len() {
-            let idx = milestone_indices.get(position).unwrap();
-            if idx >= milestones.len() {
-                env.panic_with_error(Error::IndexOutOfBounds);
-            }
-
-            let milestone = milestones.get(idx).unwrap();
-
-            if let Some(versions) = &expected_versions {
-                milestone_transitions::require_expected_version(
-                    &env,
-                    contract_id,
-                    idx,
-                    versions.get(position).unwrap(),
-                );
-            }
-
-            // SECURITY: Check if milestone is already released
-            if milestone.released {
-                env.panic_with_error(Error::MilestoneAlreadyReleased);
-            }
-
-            // SECURITY: Check if milestone is already refunded
-            if milestone.refunded {
-                env.panic_with_error(EscrowError::AlreadyRefunded);
-            }
-
-            // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if let Some(deadline) = milestone.deadline {
-                // Milestone has a deadline - require it to be strictly past.
-                // Boundary: at exactly the deadline (now == deadline) the
-                // milestone is NOT yet overdue, matching `is_milestone_overdue`.
-                if now_seconds(&env) <= deadline {
-                    env.panic_with_error(Error::MilestoneNotOverdue);
-                }
-            }
-            // If no deadline (None), allow refund anytime (backward compatibility)
-
-            total_refund_amount = total_refund_amount
-                .checked_add(milestone.amount)
-                .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-        }
-
-        // Check if there's enough balance
-        let available_balance = contract
-            .funded_amount
-            .checked_sub(contract.released_amount)
-            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-        if available_balance < total_refund_amount {
-            env.panic_with_error(EscrowError::InsufficientFunds);
-        }
-
-        // Invariant: released + refunded + accumulated fees + new refund must
-        // never exceed the total funded amount. Check before any mutation.
-        let accumulated_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AccumulatedProtocolFees)
-            .unwrap_or(0);
-        if contract.released_amount + contract.refunded_amount + accumulated_fees
-            + total_refund_amount
-            > contract.funded_amount
-        {
-            env.panic_with_error(EscrowError::AccountingInvariantViolated);
-        }
-
-        let token = Self::read_settlement_token(&env)
-            .unwrap_or_else(|| env.panic_with_error(Error::SettlementTokenNotConfigured));
-
-        // Mark milestones as refunded
-        for idx in milestone_indices.iter() {
-            let mut milestone = milestones.get(idx).unwrap();
-            milestone.refunded = true;
-            milestone.refunded_amount = milestone.amount;
-            milestones.set(idx, milestone);
-            milestone_transitions::store_milestone_transition(
-                &env,
-                contract_id,
-                idx,
-                contract.client.clone(),
-            );
-        }
-
-        contract.refunded_amount = contract
-            .refunded_amount
-            .checked_add(total_refund_amount)
-            .unwrap_or_else(|| env.panic_with_error(Error::InsufficientFunds));
-
-        // Enforce the core accounting invariant: released + refunded + accrued
-        // protocol fees must never exceed the total funded amount. This mirrors
-        // the guard in `release_milestone` and prevents any refund path from
-        // silently overdrawing escrow custody.
-        let accumulated_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AccumulatedProtocolFees)
-            .unwrap_or(0);
-        let invariant_sum = contract
-            .released_amount
-            .checked_add(contract.refunded_amount)
-            .and_then(|sum| sum.checked_add(accumulated_fees))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
-        if invariant_sum > contract.funded_amount {
-            env.panic_with_error(EscrowError::AccountingInvariantViolated);
-        }
-
-        // Check if all unreleased milestones are refunded
-        let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
-        if all_refunded_or_released {
-            let all_refunded = milestones.iter().all(|m| m.refunded);
-            if all_refunded {
-                contract.status = ContractStatus::Refunded;
-            } else {
-                // Some released, some refunded
-                contract.status = ContractStatus::Completed;
-                Self::grant_pending_reputation_credit(&env, &contract.freelancer);
-            }
-        }
-
-        ttl::store_milestones(&env, contract_id, &milestones);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contract(contract_id), &contract);
-
-        if was_disputed {
-            rollback::clear_dispute_rollback(&env, contract_id);
-        }
-
-        // Extend TTL on contract write (milestone TTL already extended by store_milestones)
-        ttl::extend_contract_ttl(&env, contract_id);
-
-        // Emit `refunded` event after all state mutations succeed.
-        //
-        // Topics : `(symbol_short!("refunded"), contract_id: u32)`
-        // Data   : `(total_refund_amount: i128, new_status: ContractStatus, timestamp: u64)`
-        env.events().publish(
-            (symbol_short!("refunded"), contract_id),
-            (
-                total_refund_amount,
-                contract.status,
-                env.ledger().timestamp(),
-            ),
-        );
-
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &contract.client,
-            &total_refund_amount,
-        );
-
-        total_refund_amount
+        refund::execute(env, contract_id, milestone_indices)
     }
 
     // Checks whether a contract with the given ID exists in storage.
