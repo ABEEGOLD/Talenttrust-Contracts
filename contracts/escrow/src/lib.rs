@@ -767,10 +767,12 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract.funded_amount
-            - contract.released_amount
-            - contract.refunded_amount
-            - accumulated_fees;
+        let available_balance = contract
+            .funded_amount
+            .checked_sub(contract.released_amount)
+            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
 
         if available_balance < total_gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);

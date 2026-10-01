@@ -50,7 +50,7 @@ mod test_pause_scope;
 mod storage_validation;
 mod event_assertions;
 mod lifecycle_invariants;
-mod finalize_invariants;
+mod fuzz_test;
 mod governance_proposal;
 mod simulate_create_contract;
 mod simulate_deposit;
