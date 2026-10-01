@@ -95,6 +95,18 @@ pub(crate) fn rollback_dispute_impl(env: &Env, contract_id: u32) -> bool {
     clear_dispute_rollback(env, contract_id);
     ttl::extend_contract_and_milestones_ttl(env, contract_id);
 
+    // Void every outstanding approval when the pre-dispute status is restored.
+    //
+    // This is the load-bearing half of the stale-approval fix. Restoring
+    // `Funded` would otherwise make any approval recorded *before* the dispute
+    // releasable again, letting funds move on a consent that predates the
+    // dispute and that no party re-affirmed afterwards. Clearing here means a
+    // rolled-back contract always requires fresh approvals.
+    //
+    // `raise_dispute` already clears, so this is normally a no-op; it is
+    // retained as the guarantee for disputes raised before that clear existed.
+    crate::approvals::clear_all_approvals(env, contract_id);
+
     env.events().publish(
         (symbol_short!("rollback"), contract_id),
         (

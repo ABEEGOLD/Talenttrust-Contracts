@@ -2,6 +2,7 @@
 
 use soroban_sdk::testutils::Ledger as _;
 pub use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
@@ -13,6 +14,7 @@ mod access_control;
 mod admin_auth_helper;
 mod approval_compatibility;
 mod approval_expiry;
+mod approval_recovery;
 mod budget;
 mod cancel_contract;
 mod client_migration;
@@ -57,7 +59,6 @@ mod storage_validation;
 mod event_assertions;
 mod governance_proposal;
 mod lifecycle_invariants;
-mod settlement_state;
 mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
@@ -167,6 +168,22 @@ impl EscrowFixtureBuilder {
         &self.env
     }
 
+    /// Raises the ledger's entry-TTL ceiling on the builder's own [`Env`].
+    ///
+    /// Call this before [`Self::build`]: a contract's *instance* TTL is fixed
+    /// at registration, so a suite that jumps the ledger far enough to evict
+    /// a long-lived temporary entry (e.g. the 7-day approval window) would
+    /// otherwise archive the instance first. The test host treats a read of an
+    /// archived instance as an uncatchable `Storage(InternalError)` panic, not a
+    /// `Result`, so a test cannot recover from it.
+    pub fn with_ledger_ttl_bounds(mut self, max_entry_ttl: u32) -> Self {
+        self.env.ledger().with_mut(|li| {
+            li.max_entry_ttl = max_entry_ttl;
+            li.min_persistent_entry_ttl = max_entry_ttl;
+        });
+        self
+    }
+
     pub fn with_admin(mut self, admin: Address) -> Self {
         self.admin = Some(admin);
         self
@@ -179,6 +196,25 @@ impl EscrowFixtureBuilder {
         arbiter: Option<Address>,
     ) -> Self {
         self.participants = Some((client, freelancer, arbiter));
+        self
+    }
+
+    /// Assign a freshly generated arbiter, preserving the default client and
+    /// freelancer.
+    ///
+    /// The address must be minted on the builder's own [`Env`]: a test
+    /// `Address` carries an environment-scoped object reference, so one
+    /// generated against a different `Env` is rejected by the host with
+    /// `Value(InvalidInput)` ("mis-tagged object reference").
+    pub fn with_generated_arbiter(mut self) -> Self {
+        let (client, freelancer, _) = self.participants.take().unwrap_or_else(|| {
+            (
+                Address::generate(&self.env),
+                Address::generate(&self.env),
+                None,
+            )
+        });
+        self.participants = Some((client, freelancer, Some(Address::generate(&self.env))));
         self
     }
 

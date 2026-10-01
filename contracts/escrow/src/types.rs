@@ -613,6 +613,46 @@ pub struct AuthorizationRecord {
     pub arbiter_approved: bool,
 }
 
+/// Read-only diagnostic view explaining *why* a milestone is or is not releasable.
+///
+/// This type exists so that a failure to release is actionable by the caller
+/// without guessing. [`AuthorizationRecord`] reports which parties have
+/// approved, but it cannot report the contract's
+/// [`ReleaseAuthorization`] mode, the milestone's terminal state, or how many
+/// approvals are still outstanding. This view resolves all of that in a single
+/// read so an integrator can distinguish the four terminal/exhausted outcomes:
+///
+/// * `released` / `refunded` — the milestone is settled; no further approval is useful.
+/// * `release_authorized` — approvals are sufficient right now.
+/// * `has_record == false` while the milestone is open — no live approval record
+///   exists, which covers both "never approved" and "the temporary record was
+///   evicted after `PENDING_APPROVAL_TTL_LEDGERS`". Both require a fresh
+///   approval, so callers need not (and cannot) distinguish them.
+/// * `approvals_missing > 0` with `has_record == true` — a partially satisfied
+///   set is live; the named parties can still approve, or withdraw via
+///   `revoke_milestone_approval`.
+///
+/// The view is derived entirely from stored state and never mutates storage.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleaseReadiness {
+    pub milestone_index: u32,
+    /// `true` when `check_approvals` would currently succeed for this milestone.
+    pub release_authorized: bool,
+    /// `true` when a live temporary approval record exists for this milestone.
+    pub has_record: bool,
+    /// Number of approvals required by the contract's `ReleaseAuthorization` mode.
+    pub approvals_required: u32,
+    /// Number of required approvals currently present.
+    pub approvals_present: u32,
+    /// Number of required approvals still outstanding. `0` when none are missing.
+    pub approvals_missing: u32,
+    /// `true` when the milestone has already been released (terminal).
+    pub released: bool,
+    /// `true` when the milestone has already been refunded (terminal).
+    pub refunded: bool,
+}
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DepositMode {
