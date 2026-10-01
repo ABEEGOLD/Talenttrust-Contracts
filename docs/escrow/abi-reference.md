@@ -72,9 +72,9 @@ The list intentionally omits planned or reserved entrypoints that are not implem
 - Signature: `finalize_contract(env: Env, contract_id: u32, finalizer: Address) -> bool`
 - Kind: Mutating
 - Auth: `finalizer.require_auth()`
-- Semantics: Writes an immutable finalization record for a contract already in `Completed` or `Disputed` state. Prevents later contract-specific mutations.
-- Events: `("finalized", contract_id)`
-- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `UnauthorizedRole`, `InvalidStatusTransition`
+- Semantics: Writes an immutable finalization record for a contract already in `Completed` or `Disputed` state. The close summary is fully validated before anything is written, so a rejected call leaves the contract unfinalized, mutable and retryable. Prevents later contract-specific mutations.
+- Events: `("finalized", contract_id)` with payload `(finalizer, timestamp, summary)`
+- Errors: `ContractPaused`, `EmergencyActive`, `ContractNotFound`, `AlreadyFinalized`, `UnauthorizedRole`, `InvalidStatusTransition`, `FinalizationStateIncomplete`, `AccountingInvariantViolated`, `PotentialOverflow`
 
 ### get_finalization_record
 
