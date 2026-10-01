@@ -1,12 +1,12 @@
-#![cfg(test)]
+#`!cfg(test)]
 
-//! Tests for versioned dispute-storage migration (issue #1017).
-//!
-//! Covers:
-//! - v0 → v1 migrate-on-read with field preservation
-//! - current-version no-op
-//! - legacy status-only disputed contracts synthesizing v1 metadata
-//! - raise/resolve wiring through the versioned path
+/// Tests for versioned dispute-storage migration (issue #1017).
+///
+/// Covers:
+/// - v0 → v1 migrate-on-read with field preservation
+/// - current-version no-op
+/// - legacy status-only disputed contracts synthesizing v1 metadata
+/// - raise/resolve wiring through the versioned path
 
 use crate::dispute::{
     get_dispute_storage_version, load_dispute_metadata, migrate_dispute_metadata_v0_to_v1,
@@ -44,10 +44,10 @@ fn migrate_v0_to_v1_preserves_fields() {
     };
 
     let v1 = migrate_dispute_metadata_v0_to_v1(v0);
-    assert_eq!(v1.schema_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(v1.raised_by, raiser);
-    assert_eq!(v1.reason_hash, hash);
-    assert_eq!(v1.raised_at, 42);
+    assert_eq(v1.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(v1.raised_by, raiser);
+    assert_eq(v1.reason_hash, hash);
+    assert_eq(v1.raised_at, 42);
 }
 
 /// Inject a v0 record and confirm load migrates + rewrites as v1 with data preserved.
@@ -81,16 +81,16 @@ fn old_version_migrates_on_read_and_preserves_data() {
             .set(&DataKey::DisputeStorageVersion(id), &0u32);
     });
 
-    assert_eq!(client.get_dispute_storage_version(&id), 0);
+    assert_eq(client.get_dispute_storage_version(&id), 0);
 
     let migrated: DisputeMetadata = client.get_dispute(&id);
-    assert_eq!(migrated.schema_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(migrated.raised_by, raiser);
-    assert_eq!(migrated.reason_hash, hash);
-    assert_eq!(migrated.raised_at, raised_at);
+    assert_eq(migrated.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(migrated.raised_by, raiser);
+    assert_eq(migrated.reason_hash, hash);
+    assert_eq(migrated.raised_at, raised_at);
 
     // Rewrite persisted the current version marker and v1 payload.
-    assert_eq!(
+    assert_eq(
         client.get_dispute_storage_version(&id),
         DISPUTE_STORAGE_VERSION
     );
@@ -100,8 +100,8 @@ fn old_version_migrates_on_read_and_preserves_data() {
             .persistent()
             .get(&DataKey::Dispute(id))
             .unwrap();
-        assert_eq!(stored, migrated);
-        assert_eq!(
+        assert_eq(stored, migrated);
+        assert_eq(
             get_dispute_storage_version(env, id),
             DISPUTE_STORAGE_VERSION
         );
@@ -137,12 +137,12 @@ fn current_version_load_is_noop() {
     let loaded = client.get_dispute(&id);
     let after_version = client.get_dispute_storage_version(&id);
 
-    assert_eq!(before_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(after_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(loaded.schema_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(loaded.raised_by, client_addr);
-    assert_eq!(loaded.reason_hash, hash);
-    assert_eq!(loaded.raised_at, 123);
+    assert_eq(before_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(after_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(loaded.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(loaded.raised_by, client_addr);
+    assert_eq(loaded.reason_hash, hash);
+    assert_eq(loaded.raised_at, 123);
 }
 
 /// Status-only disputed contracts (no metadata key) synthesize a v1 record on read.
@@ -162,12 +162,12 @@ fn legacy_status_only_dispute_synthesizes_v1_on_read() {
         // Intentionally no Dispute / DisputeStorageVersion keys.
     });
 
-    assert_eq!(client.get_dispute_storage_version(&id), 0);
+    assert_eq(client.get_dispute_storage_version(&id), 0);
     let meta = client.get_dispute(&id);
-    assert_eq!(meta.schema_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(meta.raised_by, client_addr);
-    assert_eq!(meta.raised_at, 0);
-    assert_eq!(
+    assert_eq(meta.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(meta.raised_by, client_addr);
+    assert_eq(meta.raised_at, 0);
+    assert_eq(
         client.get_dispute_storage_version(&id),
         DISPUTE_STORAGE_VERSION
     );
@@ -183,17 +183,17 @@ fn raise_persists_current_version_and_resolve_clears_metadata() {
     let id = fixture.escrow_id;
 
     assert!(client.raise_dispute(&id, &client_addr));
-    assert_eq!(
+    assert_eq(
         client.get_dispute_storage_version(&id),
         DISPUTE_STORAGE_VERSION
     );
 
     let meta = client.get_dispute(&id);
-    assert_eq!(meta.schema_version, DISPUTE_STORAGE_VERSION);
-    assert_eq!(meta.raised_by, client_addr);
+    assert_eq(meta.schema_version, DISPUTE_STORAGE_VERSION);
+    assert_eq(meta.raised_by, client_addr);
 
     assert!(client.resolve_dispute(&id, &arbiter, &DisputeResolution::FullRefund));
-    assert_eq!(client.get_dispute_storage_version(&id), 0);
+    assert_eq(client.get_dispute_storage_version(&id), 0);
     assert_contract_error(client.try_get_dispute(&id), EscrowError::DisputeNotFound);
 }
 
@@ -249,7 +249,7 @@ fn load_dispute_metadata_helper_noop_for_current() {
         };
         store_dispute_metadata(env, id, &meta);
         let loaded = load_dispute_metadata(env, id);
-        assert_eq!(loaded.raised_at, 7);
-        assert_eq!(loaded.schema_version, DISPUTE_STORAGE_VERSION);
+        assert_eq(loaded.raised_at, 7);
+        assert_eq(loaded.schema_version, DISPUTE_STORAGE_VERSION);
     });
 }

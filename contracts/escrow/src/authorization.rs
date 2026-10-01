@@ -78,6 +78,15 @@ pub fn get_caller_role(caller: &Address, contract: &Contract) -> Option<Particip
 /// freelancer (and both are required for approval, but this helper only checks
 /// if one caller *can* approve).
 pub fn require_release_authorization(env: &Env, caller: &Address, contract: &Contract) {
+    if !release_authorization_allows(caller, contract) {
+        env.panic_with_error(Error::UnauthorizedRole);
+    }
+}
+
+/// Pure compatibility predicate for release authorization. Keeping role
+/// selection and mode matching in one function makes all entrypoints agree on
+/// the legacy client/freelancer/arbiter behavior without mutating state.
+pub fn release_authorization_allows(caller: &Address, contract: &Contract) -> bool {
     let role = get_caller_role(caller, contract);
 
     // Caller must be a participant; otherwise reject immediately.
@@ -86,29 +95,31 @@ pub fn require_release_authorization(env: &Env, caller: &Address, contract: &Con
         match contract.release_authorization {
             ReleaseAuthorization::ClientOnly => {
                 if role != ParticipantRole::Client {
-                    env.panic_with_error(Error::UnauthorizedRole);
+                    return false;
                 }
             }
             ReleaseAuthorization::ArbiterOnly => {
                 if role != ParticipantRole::Arbiter {
-                    env.panic_with_error(Error::UnauthorizedRole);
+                    return false;
                 }
             }
             ReleaseAuthorization::ClientAndArbiter => {
                 if role != ParticipantRole::Client && role != ParticipantRole::Arbiter {
-                    env.panic_with_error(Error::UnauthorizedRole);
+                    return false;
                 }
             }
             ReleaseAuthorization::MultiSig => {
                 if role != ParticipantRole::Client && role != ParticipantRole::Freelancer {
-                    env.panic_with_error(Error::UnauthorizedRole);
+                    return false;
                 }
             }
         }
     } else {
         // Not a participant
-        env.panic_with_error(Error::UnauthorizedRole);
+        return false;
     }
+
+    true
 }
 
 /// Checks if a caller is a valid participant in a contract.

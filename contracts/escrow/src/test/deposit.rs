@@ -1,5 +1,5 @@
 use super::{assert_contract_error, EscrowFixture};
-use crate::{ContractStatus, Error};
+use crate::{deposit, ContractStatus, Error};
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 
 /// A fully-funded fixture records the complete milestone total and custody balance.
@@ -52,4 +52,47 @@ fn deposit_rejects_non_positive_amounts() {
             Error::AmountMustBePositive,
         );
     }
+}
+
+/// A stale validated deposit must be rejected if another deposit advanced the
+/// contract state first. This guards the preflight+apply pattern against replay
+/// and racing writes that would otherwise silently regress the escrow balance.
+#[test]
+fn stale_validated_deposit_rejected_after_state_change() {
+    let fixture = EscrowFixture::builder().with_settlement_token().build();
+    let escrow = fixture.escrow();
+    let total = fixture.total_amount();
+    let stale_amount = total / 4;
+    let fresh_amount = total / 2;
+    let token = fixture.settlement_token.as_ref().unwrap();
+    StellarAssetClient::new(&fixture.env, token).mint(&fixture.client, &total);
+
+    let stale_validated = deposit::validate_deposit(
+        &fixture.env,
+        fixture.escrow_id,
+        &fixture.client,
+        stale_amount,
+    );
+
+    assert!(escrow.deposit_funds(&fixture.escrow_id, &fixture.client, &fresh_amount));
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).funded_amount,
+        fresh_amount
+    );
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        deposit::apply_validated_deposit(
+            &fixture.env,
+            fixture.escrow_id,
+            fixture.client.clone(),
+            stale_validated,
+        );
+    }));
+
+    assert!(result.is_err(), "stale validated deposits must be rejected");
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).funded_amount,
+        fresh_amount,
+        "stale write must not regress escrow funding state"
+    );
 }
