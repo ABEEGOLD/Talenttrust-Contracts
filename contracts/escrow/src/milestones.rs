@@ -59,26 +59,20 @@ impl Escrow {
         contract_id: u32,
         milestone_index: u32,
     ) -> bool {
-        let contract: Contract = match env
+        let contract: Contract = env
             .storage()
             .persistent()
             .get(&DataKey::Contract(contract_id))
-        {
-            Some(c) => c,
-            None => return false,
-        };
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
 
         // Milestones are stored under a composite key; a missing entry means
         // the contract has no milestones yet, which is not overdue.
         let milestone_key = Symbol::new(env, "milestones");
-        let milestones: Vec<Milestone> = match env
+        let milestones: Vec<Milestone> = env
             .storage()
             .persistent()
             .get(&(DataKey::Contract(contract_id), milestone_key))
-        {
-            Some(m) => m,
-            None => return false,
-        };
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::ContractNotFound));
 
         if milestone_index >= milestones.len() {
             env.panic_with_error(Error::IndexOutOfBounds);
@@ -393,6 +387,10 @@ impl Escrow {
         let approval_key = DataKey::MilestoneApprovals(contract_id, milestone_index);
         if env.storage().temporary().has(&approval_key) {
             env.panic_with_error(Error::EvidenceLocked);
+        }
+
+        if milestone.work_evidence == Some(evidence.clone()) {
+            return true; // Idempotent success or we could panic, but true is safer for retries
         }
 
         milestone.work_evidence = Some(evidence.clone());
