@@ -547,6 +547,30 @@ fn get_milestone_unknown_contract_panics_contract_not_found() {
 }
 
 #[test]
+fn get_milestone_zero_contract_id_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    assert_contract_error(
+        client.try_get_milestone(&0u32, &0u32),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
+fn get_milestone_max_contract_id_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+
+    assert_contract_error(
+        client.try_get_milestone(&u32::MAX, &0u32),
+        EscrowError::ContractNotFound,
+    );
+}
+
+#[test]
 fn deposit_exceeding_total_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -559,63 +583,30 @@ fn deposit_exceeding_total_fails() {
     );
 }
 
-// ─── Storage Input Bounds Validation (#899) ──────────────────────────────
-
 #[test]
-fn storage_entrypoints_reject_zero_contract_id() {
+fn deposit_zero_amount_rejected() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
 
-    assert_contract_error(client.try_get_contract(&0u32), EscrowError::ContractNotFound);
+    let (client_addr, _, id) = create_contract(&env, &client);
     assert_contract_error(
-        client.try_get_contract_summary(&0u32),
-        EscrowError::ContractNotFound,
-    );
-    assert_contract_error(
-        client.try_get_milestones(&0u32),
-        EscrowError::ContractNotFound,
-    );
-    assert_contract_error(
-        client.try_get_milestone(&0u32, &0u32),
-        EscrowError::ContractNotFound,
-    );
-    assert_contract_error(
-        client.try_get_refundable_balance(&0u32),
-        EscrowError::ContractNotFound,
-    );
-    assert_contract_error(
-        client.try_set_arbiter(&0u32, &admin, &None),
-        EscrowError::ContractNotFound,
+        client.try_deposit_funds(&id, &client_addr, &0),
+        EscrowError::ExactDepositRequired,
     );
 }
 
 #[test]
-fn storage_entrypoints_boundary_contract_id_valid() {
+fn deposit_exact_total_boundary_accepted() {
     let env = Env::default();
     env.mock_all_auths();
     let client = register_client(&env);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
 
-    // Min valid contract ID 1 (unallocated) returns ContractNotFound, not InvalidContractId.
-    assert_contract_error(client.try_get_contract(&1u32), EscrowError::ContractNotFound);
-    assert_contract_error(
-        client.try_get_contract_summary(&1u32),
-        EscrowError::ContractNotFound,
-    );
+    let (client_addr, _, id) = create_contract(&env, &client);
+    assert!(client.try_deposit_funds(&id, &client_addr, &total_milestone_amount()).is_ok());
 
-    // Max u32 contract ID (unallocated) returns ContractNotFound, not InvalidContractId.
-    assert_contract_error(
-        client.try_get_contract(&u32::MAX),
-        EscrowError::ContractNotFound,
-    );
-    assert_contract_error(
-        client.try_get_contract_summary(&u32::MAX),
-        EscrowError::ContractNotFound,
-    );
+    let record = client.get_contract(&id);
+    assert_eq!(record.funded_amount, total_milestone_amount());
 }
 
 // ─── Storage Input Bounds Validation (#899) ──────────────────────────────
@@ -648,6 +639,32 @@ fn storage_entrypoints_reject_zero_contract_id() {
     assert_contract_error(
         client.try_set_arbiter(&0u32, &admin, &None),
         EscrowError::InvalidContractId,
+    );
+}
+
+#[test]
+fn storage_entrypoints_reject_max_contract_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = register_client(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    assert_contract_error(
+        client.try_get_milestones(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_milestone(&u32::MAX, &0u32),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_get_refundable_balance(&u32::MAX),
+        EscrowError::ContractNotFound,
+    );
+    assert_contract_error(
+        client.try_set_arbiter(&u32::MAX, &admin, &None),
+        EscrowError::ContractNotFound,
     );
 }
 

@@ -27,12 +27,23 @@
 //! All functions are pure (no side-effects) and intended to be called at the
 //! top of the corresponding entrypoint, before any state mutation occurs.
 //!
-//! # State invariants
+//! # Invariants
 //!
-//! Every validator in this module is a pure predicate over its inputs and
-//! MUST be invoked before any storage write in the corresponding entrypoint.
-//! Rejections panic with a typed error and leave storage untouched, so a
-//! failed validation can never leave a partially-mutated state behind.
+//! * Every validator is total: it either returns `()` or panics with a typed
+//!   error. It never mutates state, never allocates unbounded memory, and
+//!   never performs I/O.
+//! * Validators are idempotent and side-effect free, so they may be safely
+//!   re-run on retries or after a partial failure without changing the
+//!   outcome.
+//! * Boundary values are inclusive on the accepted side and rejected on the
+//!   first out-of-range value (e.g. `MAX_MILESTONES` is accepted,
+//!   `MAX_MILESTONES + 1` is rejected).
+//! * Duplicate submissions are handled by the caller's state machine; these
+//!   validators only assert that the *shape* of the input is well-formed, so
+//!   a duplicate that reaches a validator is validated identically to a
+//!   first-time submission.
+//! * Rejections never leak sensitive data: only the typed error code is
+//!   surfaced to the caller.
 
 use crate::milestones_consts::MAX_SINGLE_AMOUNT_STROOPS;
 use crate::milestones_consts::{
@@ -54,6 +65,11 @@ use soroban_sdk::panic_with_error;
 /// * Values above [`MAX_SINGLE_AMOUNT_STROOPS`] — the cap must not exceed
 ///   the per-milestone amount ceiling, otherwise a single milestone could
 ///   never satisfy the cap and the invariant would be unenforceable.
+///
+/// # Boundary behavior
+/// * `1` is accepted (smallest positive cap).
+/// * `i128::MAX` is accepted (largest representable cap).
+/// * `0`, `-1`, and `i128::MIN` are rejected.
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
@@ -78,8 +94,11 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 /// * `max_rating` in `[min_rating, 10]`
 /// * `max_comment_bytes` in `[1, 1_000]`
 ///
-/// # Rejected values
-/// * Any parameter outside the ranges above.
+/// # Boundary behavior
+/// * `min_rating == max_rating` is accepted (single-value range).
+/// * `max_comment_bytes == 1` and `max_comment_bytes == 1_000` are accepted.
+/// * `min_rating == 0`, `max_rating < min_rating`, `max_rating > 10`,
+///   `max_comment_bytes == 0`, and `max_comment_bytes > 1_000` are rejected.
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
@@ -117,8 +136,9 @@ pub(crate) fn validate_reputation_config_params(
 /// * `0` — at least one milestone is required.
 /// * Values > `MAX_MILESTONES` (10).
 ///
-/// # Invariants
-/// * The returned count is always in `[1, MAX_MILESTONES]` on success.
+/// # Boundary behavior
+/// * `1` and `MAX_MILESTONES` are accepted.
+/// * `0`, `MAX_MILESTONES + 1`, and `u32::MAX` are rejected.
 ///
 /// # Panics
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
@@ -141,8 +161,9 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 /// # Accepted values
 /// * `bps` in `[0, MAX_FEE_BPS]` (0–10 000).
 ///
-/// # Rejected values
-/// * Values > `MAX_FEE_BPS`.
+/// # Boundary behavior
+/// * `0` and `MAX_FEE_BPS` are accepted.
+/// * `MAX_FEE_BPS + 1` and `u32::MAX` are rejected.
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
@@ -161,9 +182,9 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// # Accepted values
 /// * `amount` in `(0, MAX_SINGLE_AMOUNT_STROOPS]`.
 ///
-/// # Rejected values
-/// * `0` and negative values.
-/// * Values > `MAX_SINGLE_AMOUNT_STROOPS`.
+/// # Boundary behavior
+/// * `1` and `MAX_SINGLE_AMOUNT_STROOPS` are accepted.
+/// * `0`, `-1`, and `MAX_SINGLE_AMOUNT_STROOPS + 1` are rejected.
 ///
 /// # Panics
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
