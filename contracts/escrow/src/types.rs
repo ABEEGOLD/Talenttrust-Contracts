@@ -408,6 +408,11 @@ pub enum Error {
     /// one recorded at contract-creation time.  Re-binding with a different
     /// token scale is not allowed after contracts exist.
     TokenScaleMismatch = 83,
+    /// Finalization refused: the contract is in a sealable state but its
+    /// milestone vector is missing, so a complete and accurate close summary
+    /// cannot be built.  Nothing is written; the contract stays mutable so the
+    /// milestone entry can be restored and the seal retried.
+    FinalizationStateIncomplete = 84,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────
@@ -555,6 +560,47 @@ pub struct MilestoneApprovals {
 
 /// Maximum records returned per pagination request across view entrypoints.
 pub const MAX_PAGINATION_LIMIT: u32 = 50;
+
+// ── Settlement state snapshot ────────────────────────────────────────────────
+
+/// Read-only projection of the settlement layer returned by `get_settlement_state`.
+///
+/// Aggregates the two independent settlement storage keys into a single,
+/// versioned snapshot so callers (indexers, clients, off-chain tooling) can
+/// read the full settlement configuration in one call.
+///
+/// ## Invariants
+///
+/// * `token` is `Some` after a successful `bind_settlement_token` and `None`
+///   before any binding.  Once set, it is immutable — it can never revert to
+///   `None`.
+/// * `accumulated_protocol_fees` is always `>= 0`.  Negative values indicate
+///   an accounting invariant violation and should never occur in production.
+/// * This type is **read-only**: `get_settlement_state` never mutates storage.
+///
+/// ## Compatibility
+///
+/// New fields may be added (with defaults) in future schema versions. Existing
+/// consumers should ignore unknown fields if deserialising from raw ledger XDR.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementState {
+    /// The bound SAC token address, or `None` when no token has been bound.
+    pub token: Option<Address>,
+    /// Total protocol fees accumulated from milestone releases, in stroops.
+    ///
+    /// Defaults to `0` before any milestone is released. Always non-negative.
+    pub accumulated_protocol_fees: i128,
+}
+
+impl Default for SettlementState {
+    fn default() -> Self {
+        SettlementState {
+            token: None,
+            accumulated_protocol_fees: 0,
+        }
+    }
+}
 
 /// Bounded pagination record for milestone release authorization status.
 #[contracttype]
