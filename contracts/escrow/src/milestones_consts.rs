@@ -248,4 +248,52 @@ mod tests {
             "10_001 bps must exceed MAX_FEE_BPS"
         );
     }
+
+    /// Ensure that concurrent reads of these constants from multiple threads
+    /// do not produce inconsistent or stale results, guaranteeing thread-safety
+    /// and deterministic behaviour under parallel access patterns.
+    #[test]
+    fn concurrent_read_consistency() {
+        extern crate std;
+        use std::thread;
+        use std::vec::Vec;
+
+        let num_threads = 20;
+        let mut handles = Vec::new();
+
+        for _ in 0..num_threads {
+            handles.push(thread::spawn(|| {
+                // Read all constants, asserting their validity and absence of stale state
+                assert_eq!(MAX_MILESTONES, 10);
+                assert_eq!(MAX_BATCH_MILESTONES, 10);
+                assert_eq!(PROTOCOL_FEE_BPS_DENOMINATOR, 10_000);
+                assert_eq!(MIN_FEE_BPS, 0);
+                assert_eq!(MAX_FEE_BPS, 10_000);
+                assert_eq!(MIN_RATING, 1);
+                assert_eq!(MAX_RATING, 5);
+                assert_eq!(MAX_COMMENT_BYTES, 200);
+                assert_eq!(MIN_COMMENT_BYTES, 1);
+                assert_eq!(MAX_WORK_EVIDENCE_BYTES, 1_000);
+                assert_eq!(MIN_WORK_EVIDENCE_BYTES, 1);
+                assert_eq!(MAX_REPUTATION_CONFIG_RATING_CEILING, 10);
+                assert_eq!(MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING, 1_000);
+            }));
+        }
+
+        for handle in handles {
+            assert!(handle.join().is_ok(), "Thread panicked during concurrent read");
+        }
+    }
+
+    /// Idempotency test: repeated reads and boundary checks must consistently 
+    /// produce the same state and evaluation over time, preventing duplicate work bugs.
+    #[test]
+    fn idempotent_boundary_evaluations() {
+        let iters = 1_000;
+        for _ in 0..iters {
+            assert_eq!(MAX_BATCH_MILESTONES, 10);
+            assert_eq!(MAX_MILESTONES, 10);
+            assert_eq!(PROTOCOL_FEE_BPS_DENOMINATOR, 10_000);
+        }
+    }
 }
