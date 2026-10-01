@@ -59,7 +59,7 @@ pub(crate) fn validate_event_amounts(
     if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || total_deposited < 0 {
         return Err(EscrowError::AmountMustBePositive);
     }
-    Ok(())
+    Ok()
 }
 
 /// Emits an indexed event when a dispute is opened on a contract.
@@ -99,6 +99,8 @@ pub fn emit_dispute_opened_event(
             contract.refunded_amount,
         ),
     );
+
+    true
 }
 
 /// Emits an indexed event when a dispute is resolved.
@@ -136,6 +138,8 @@ pub fn emit_dispute_resolved_event(
             final_status as u32,
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is released to a freelancer.
@@ -172,6 +176,8 @@ pub fn emit_milestone_released_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is refunded to the client.
@@ -204,6 +210,8 @@ pub fn emit_milestone_refunded_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is approved by client or arbiter.
@@ -229,6 +237,8 @@ pub fn emit_milestone_approved_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when work evidence is submitted for a milestone.
@@ -240,7 +250,7 @@ pub fn emit_work_evidence_submitted_event(
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk::String,
+    evidence: &soroban_sdk:Symbol,
 ) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::InvalidContractId);
@@ -256,4 +266,6 @@ pub fn emit_work_evidence_submitted_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
