@@ -51,47 +51,12 @@
 //! be replayed against a cancelled or already-consumed proposal: it simply
 //! finds nothing pending and fails with `Error::InvalidState`.
 //!
-//! ## Compatibility contract
-//!
-//! The behavior below is observable by deployed clients, indexers, and
-//! operators. Every change to this module must preserve it, or ship an
-//! explicit, tested migration plan. `test::governance_compatibility` pins
-//! each item.
-//!
-//! * **Frozen entrypoint surface.** Public names, parameter order/types, and
-//!   return types (`setters -> bool`, `getters -> total functions`) must not
-//!   change without a client migration.
-//! * **Total readers on empty data.** No getter here calls
-//!   [`Escrow::require_initialized`]: before `initialize`, on a fresh
-//!   contract, or after an upgrade that left a key unset, they return the
-//!   documented defaults instead of failing — fee bps `0`, max milestones
-//!   `crate::MAX_MILESTONES`, withdrawal cap `5_000` bps, cooldown `17_280`
-//!   ledgers, last withdrawal ledger `0`, governed parameters `None`,
-//!   pending admin `None`. The numeric defaults live once and only once in
-//!   the constants below.
-//! * **Failure atomicity.** Validation runs before any write, and every
-//!   rejection is a typed panic, which rolls the whole call back — including
-//!   the admin-nonce burn in [`Escrow::set_protocol_fee_bps`] and any event
-//!   already queued. A rejected call therefore persists nothing, burns no
-//!   nonce, and emits no event, making retries and concurrent replays safe.
-//! * **Event topics and payload arity.** See the `# Events` sections on each
-//!   setter. The governance-proposal apply path
-//!   ([`crate::governance_proposal`]) reuses the `protocol_fee_bps`,
-//!   `governed_parameters`, `fee_cap`, and `fee_cooldown` topics with a
-//!   3-field payload (no `admin`) while the direct setters here emit 4-field
-//!   payloads; indexers branch on that arity. Neither shape may change
-//!   casually.
-//! * **Storage keys are the wire format.** Values must remain decodable
-//!   under their `DataKey` variant (`ProtocolFeeBps`/`MaxMilestones`/u32,
-//!   `GovernedParameters`/struct, `PendingAdmin`/struct, fee-rate-limit
-//!   keys/u32, `Admin`/Address). Reusing a key for a different shape is a
-//!   breaking change requiring migration.
-//! * **Authorization invariants.** Every setter requires an initialized
-//!   contract (`Error::NotInitialized`) and the stored `DataKey::Admin` to
-//!   authorize; [`Escrow::set_governed_parameters`] additionally rejects a
-//!   mismatched `admin` argument with `Error::UnauthorizedRole`; admin
-//!   transfer is propose/accept/cancel with the timelock window enforced on
-//!   accept only.
+//! Concurrent clients should use the `*_checked` entrypoints with the revision
+//! returned by `get_admin_rotation_revision`. Every successful rotation mutation,
+//! including a legacy call, advances that revision. A stale request therefore
+//! cannot accept/cancel a replacement proposal, even if it has the same address
+//! and was created in the same ledger (the ABA case). Soroban serializes conflicting
+//! transactions and rolls back failed invocations; no process-local lock is needed.
 
 use crate::storage_validation;
 use crate::ttl;
@@ -102,31 +67,26 @@ use crate::{
 };
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol};
 
-// ── Compatibility constants ─────────────────────────────────────────────────
-//
-// Defaults and bounds that are part of the module's observable behavior.
-// Getters fall back to the `DEFAULT_*` values when their `DataKey` entry is
-// unset, and setters reject anything above the `MAX_*` values. Changing a
-// number here changes public behavior for every existing caller and indexer;
-// `test::governance_compatibility` pins each value.
+fn require_rotation_revision(env: &Env, expected_revision: u64) {
+    Escrow::require_initialized(env);
+    if Escrow::get_admin_rotation_revision(env.clone()) != expected_revision {
+        env.panic_with_error(Error::StaleNonce);
+    }
+}
 
-/// Fallback for `DataKey::ProtocolFeeBps` when unset: no protocol fee.
-pub(crate) const DEFAULT_PROTOCOL_FEE_BPS: u32 = 0;
-
-/// Fallback for `DataKey::FeeWithdrawalCap` when the key is unset: 50 %.
-pub(crate) const DEFAULT_FEE_WITHDRAWAL_CAP_BPS: u32 = 5_000;
-
-/// Upper bound for the fee-withdrawal cap: 100 % of accumulated fees, i.e.
-/// the same basis-point ceiling as [`MAX_FEE_BPS`].
-pub(crate) const MAX_FEE_WITHDRAWAL_CAP_BPS: u32 = MAX_FEE_BPS;
-
-/// Fallback for `DataKey::FeeWithdrawalCooldownLedgers` when the key is
-/// unset: ≈1 day at 5 s ledgers.
-pub(crate) const DEFAULT_FEE_WITHDRAWAL_COOLDOWN_LEDGERS: u32 = 17_280;
-
-/// Upper bound for the fee-withdrawal cooldown: ≈150 days at 5 s ledgers.
-/// Larger values are rejected so a typo cannot permanently lock the treasury.
-pub(crate) const MAX_FEE_WITHDRAWAL_COOLDOWN_LEDGERS: u32 = 2_592_000;
+/// Advance only in the same atomic invocation as the rotation mutation. Instance
+/// storage prevents independent expiry of the revision from resetting replay
+/// protection while the contract instance remains live. Never wrap at u64::MAX.
+fn advance_rotation_revision(env: &Env) {
+    let revision = Escrow::get_admin_rotation_revision(env.clone())
+        .checked_add(1)
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    env.storage()
+        .instance()
+        .set(&DataKey::AdminRotationRevision, &revision);
+    env.events()
+        .publish((Symbol::new(env, "admin_rotation_revision"),), revision);
+}
 
 #[contractimpl]
 impl Escrow {
@@ -252,12 +212,41 @@ impl Escrow {
 
     // ── Two-step admin transfer ───────────────────────────────────────────────
 
-    /// Propose a new admin. Stores the proposal with a timelock.
-    ///
-    /// Public entrypoint that delegates to [`propose_admin_impl`].
-    ///
-    /// # Events
-    /// `(symbol_short!("admin"), Symbol("proposed"))` → `(admin, proposed, timestamp)`
+    /// Current admin-rotation revision. Zero is the initial/pre-upgrade value.
+    pub fn get_admin_rotation_revision(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::AdminRotationRevision)
+            .unwrap_or(0)
+    }
+
+    /// Propose only if the observed rotation revision is still current.
+    /// A stale or replayed request fails with `StaleNonce` without changing state.
+    pub fn propose_admin_checked(env: Env, proposed: Address, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::propose_admin_impl(&env, proposed)
+    }
+
+    /// Accept only the proposal observed at `expected_revision`, with the usual
+    /// proposed-admin authorization, timelock, and expiry checks.
+    pub fn accept_admin_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::accept_admin_impl(&env)
+    }
+
+    /// Cancel only the proposal observed at `expected_revision` (current admin).
+    pub fn cancel_admin_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::cancel_admin_impl(&env)
+    }
+
+    /// Recover only the expired proposal observed at `expected_revision`.
+    pub fn recover_admin_proposal_checked(env: Env, expected_revision: u64) -> bool {
+        require_rotation_revision(&env, expected_revision);
+        Self::recover_admin_proposal_impl(&env)
+    }
+
+    /// Legacy proposal entrypoint; use `propose_admin_checked` for stale-request protection.
     pub fn propose_admin(env: Env, proposed: Address) -> bool {
         Self::propose_admin_impl(&env, proposed)
     }
@@ -301,31 +290,7 @@ impl Escrow {
             env.panic_with_error(Error::CannotProposeSelf);
         }
 
-        // If a previous proposal exists and is still within its acceptance
-        // window, emit a `replaced` event so the superseded candidate address
-        // is observable off-chain.  This makes re-proposals non-silently
-        // deterministic: monitoring tools and the displaced candidate can
-        // detect that their window has been closed.
-        if let Some(existing) =
-            env.storage()
-                .persistent()
-                .get::<_, PendingAdminProposal>(&DataKey::PendingAdmin)
-        {
-            let elapsed = env
-                .ledger()
-                .sequence()
-                .saturating_sub(existing.proposed_at_ledger);
-            // Only emit `replaced` for proposals still within their TTL
-            // (i.e. ones that *could* have been accepted).  Expired proposals
-            // are silently overwritten because they were already unreachable.
-            if elapsed <= ADMIN_ROTATION_PROPOSAL_TTL_LEDGERS {
-                env.events().publish(
-                    (symbol_short!("admin"), Symbol::new(env, "replaced")),
-                    (admin.clone(), existing.proposed, env.ledger().timestamp()),
-                );
-            }
-        }
-
+        advance_rotation_revision(env);
         env.storage().persistent().set(
             &DataKey::PendingAdmin,
             &PendingAdminProposal {
@@ -412,9 +377,7 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
-        // Invariant: the admin slot is overwritten and the pending proposal is
-        // cleared in the same transaction, so there is never a window where
-        // both the old and new admin are simultaneously authorized.
+        advance_rotation_revision(env);
         env.storage()
             .persistent()
             .set(&DataKey::Admin, &pending_admin);
@@ -471,6 +434,7 @@ impl Escrow {
             .get(&DataKey::PendingAdmin)
             .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
 
+        advance_rotation_revision(env);
         env.storage().persistent().remove(&DataKey::PendingAdmin);
 
         env.events().publish(
@@ -530,6 +494,7 @@ impl Escrow {
             env.panic_with_error(Error::InvalidState);
         }
 
+        advance_rotation_revision(env);
         env.storage().persistent().remove(&DataKey::PendingAdmin);
 
         env.events().publish(
