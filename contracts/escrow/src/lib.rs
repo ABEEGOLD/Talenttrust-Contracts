@@ -2028,6 +2028,54 @@ impl Escrow {
             .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
     }
 
+    /// Set both the max milestones and max escrow stroops limits atomically.
+    /// Admin only. Rejects out-of-range values.
+    pub fn set_contracts_parameters(
+        env: Env,
+        max_milestones: u32,
+        max_escrow_stroops: i128,
+    ) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+        if max_escrow_stroops < MIN_MAX_ESCROW_STROOPS
+            || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
+        {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        let params = crate::types::ContractsParameters {
+            max_milestones,
+            max_escrow_stroops,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractsParameters, &params);
+
+        env.events().publish(
+            (symbol_short!("contracts"), Symbol::new(&env, "params")),
+            (params, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the currently configured contracts parameters (or the defaults if not set).
+    pub fn get_contracts_parameters(env: Env) -> crate::types::ContractsParameters {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContractsParameters)
+            .unwrap_or_default()
+    }
+
     pub fn set_max_arbiters(env: Env, max_arbiters: u32) -> bool {
         Self::require_initialized(&env);
         let admin: Address = env
