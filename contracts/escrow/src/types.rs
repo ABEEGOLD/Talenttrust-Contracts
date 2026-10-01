@@ -396,6 +396,10 @@ pub enum Error {
     /// one recorded at contract-creation time.  Re-binding with a different
     /// token scale is not allowed after contracts exist.
     TokenScaleMismatch = 83,
+    /// A mutation was submitted against an obsolete milestone version.
+    StaleMilestoneVersion = 84,
+    /// The expected-version vector does not match the milestone-index vector.
+    InvalidVersionCount = 85,
 }
 
 // ── Core contract state ──────────────────────────────────────────────────────

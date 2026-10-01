@@ -25,16 +25,19 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 /// - `AmountMusbePositive` if any amount field is negative.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
-        env.panic_with_error(EscrowError::InvalidContractId);
+        return false;
     }
 
-    validate_event_amounts(
+    if validate_event_amounts(
         contract.funded_amount,
         contract.released_amount,
         contract.refunded_amount,
         contract.total_deposited,
     )
-    .unwrap_or_else(|e| env.panic_with_error(e));
+    .is_err()
+    {
+        return false;
+    }
 
     env.events().publish(
         (symbol_short!("contract"), contract_id),
@@ -46,6 +49,8 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
             contract.total_deposited,
         ),
     );
+
+    true
 }
 
 /// Validate that event payload amounts are non-negative.
@@ -57,6 +62,26 @@ pub(crate) fn validate_event_amounts(
     total_deposited: i128,
 ) -> Result<(), crate::EscrowError> {
     if funded_amount < 0 || released_amount < 0 || refunded_amount < 0 || total_deposited < 0 {
+        return Err(EscrowError::AmountMustBePositive);
+    }
+    Ok(())
+}
+
+/// Validate that a dispute event payload is well-formed.
+///
+/// Enforces the same invariants as [`validate_event_amounts`] and additionally
+/// rejects a zero `contract_id`. This keeps dispute events consistent with
+/// the contract-indexed event contract so indexers can rely on the same rules.
+pubcrate fn validate_dispute_amounts(
+    contract_id: u32,
+    first_amount: i128,
+    second_amount: i128,    
+    third_amount: i128,
+) -> Result<(), crate::EscrowError> {
+    if contract_id == 0 {
+        return Err(EscrowError::InvalidContractId);
+    }
+    if first_amount < 0 || second_amount < 0 || third_amount < 0 {
         return Err(EscrowError::AmountMustBePositive);
     }
     Ok(())
@@ -99,6 +124,8 @@ pub fn emit_dispute_opened_event(
             contract.refunded_amount,
         ),
     );
+
+    true
 }
 
 /// Emits an indexed event when a dispute is resolved.
@@ -135,6 +162,8 @@ pub fn emit_dispute_resolved_event(
             final_status as u32,
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is released to a freelancer.
@@ -170,6 +199,8 @@ pub fn emit_milestone_released_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is refunded to the client.
@@ -201,6 +232,8 @@ pub fn emit_milestone_refunded_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when a milestone is approved by client or arbiter.
@@ -226,6 +259,8 @@ pub fn emit_milestone_approved_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
 
 /// Emits an event when work evidence is submitted for a milestone.
@@ -253,4 +288,6 @@ pub fn emit_work_evidence_submitted_event(
             env.ledger().timestamp(),
         ),
     );
+
+    true
 }
