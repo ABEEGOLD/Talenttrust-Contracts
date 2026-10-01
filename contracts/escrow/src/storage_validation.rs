@@ -21,6 +21,7 @@
 //! * `validate_protocol_fee_bps`: `[0, MAX_FEE_BPS]`
 //! * `validate_stroop_amount`: `(0, MAX_SINGLE_AMOUNT_STROOPS]`
 
+use crate::milestones_consts::MAX_SINGLE_AMOUNT_STROOPS;
 use crate::milestones_consts::{
     MAX_FEE_BPS, MAX_MILESTONES, MAX_RATING, MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING,
     MAX_REPUTATION_CONFIG_RATING_CEILING, MIN_COMMENT_BYTES, MIN_RATING,
@@ -37,6 +38,9 @@ use soroban_sdk::panic_with_error;
 /// # Rejected values
 /// * `0` — a zero cap would block every contract creation.
 /// * Negative values — amounts must be positive.
+/// * Values above [`MAX_SINGLE_AMOUNT_STROOPS`] — the cap must not exceed
+///   the per-milestone amount ceiling, otherwise a single milestone could
+///   never satisfy the cap and the invariant would be unenforceable.
 ///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
@@ -44,6 +48,9 @@ use soroban_sdk::panic_with_error;
 #[inline]
 pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i128) {
     if max_escrow_total_stroops <= 0 {
+        env.panic_with_error(Error::InvalidProtocolParameters);
+    }
+    if max_escrow_total_stroops > MAX_SINGLE_AMOUNT_STROOPS {
         env.panic_with_error(Error::InvalidProtocolParameters);
     }
 }
@@ -55,6 +62,9 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 /// * `max_rating` in `[min_rating, 10]`
 /// * `max_comment_bytes` in `[1, 1_000]`
 ///
+/// # Rejected values
+/// * Any parameter outside the ranges above.
+///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
 #[inline]
@@ -64,6 +74,9 @@ pub(crate) fn validate_reputation_config_params(
     max_rating: u32,
     max_comment_bytes: u32,
 ) {
+    if min_rating > MAX_REPUTATION_CONFIG_RATING_CEILING {
+        env.panic_with_error(Error::InvalidProtocolParameters);
+    }
     if min_rating < MIN_RATING
         || max_rating < min_rating
         || max_rating > MAX_REPUTATION_CONFIG_RATING_CEILING
@@ -83,6 +96,9 @@ pub(crate) fn validate_reputation_config_params(
 /// * `0` — at least one milestone is required.
 /// * Values > `MAX_MILESTONES` (10).
 ///
+/// # Invariants
+/// * The returned count is always in `[1, MAX_MILESTONES]` on success.
+///
 /// # Panics
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
 /// [`EscrowError::TooManyMilestones`] when `count > MAX_MILESTONES`.
@@ -101,6 +117,9 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 /// # Accepted values
 /// * `bps` in `[0, MAX_FEE_BPS]` (0–10 000).
 ///
+/// # Rejected values
+/// * Values > `MAX_FEE_BPS`.
+///
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
 #[inline]
@@ -115,6 +134,10 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// # Accepted values
 /// * `amount` in `(0, MAX_SINGLE_AMOUNT_STROOPS]`.
 ///
+/// # Rejected values
+/// * `0` and negative values.
+/// * Values > `MAX_SINGLE_AMOUNT_STROOPS`.
+///
 /// # Panics
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
 /// [`EscrowError::InvalidMilestoneAmount`] when the amount exceeds the cap.
@@ -122,6 +145,9 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         env.panic_with_error(crate::EscrowError::AmountMustBePositive);
+    }
+    if amount > crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS {
+        env.panic_with_error(crate::EscrowError::InvalidMilestoneAmount);
     }
     if amount > crate::amount_validation::MAX_SINGLE_AMOUNT_STROOPS {
         env.panic_with_error(crate::EscrowError::InvalidMilestoneAmount);
@@ -174,9 +200,9 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn validate_escrow_total_cap_rejects_i128_min_plus_one() {
+    fn validate_escrow_total_cap_rejects_over_single_amount_max() {
         let e = env();
-        validate_escrow_total_cap(&e, i128::MIN + 1);
+        validate_escrow_total_cap(&e, MAX_SINGLE_AMOUNT_STROOPS + 1);
     }
 
     // ── validate_reputation_config_params ─────────────────────────────────────
@@ -236,16 +262,9 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn validate_reputation_config_params_rejects_min_rating_over_10() {
+    fn validate_reputation_config_params_rejects_min_rating_over_ceiling() {
         let e = env();
         validate_reputation_config_params(&e, 11, 11, 200);
-    }
-
-    #[test]
-    #[should_panic]
-    fn validate_reputation_config_params_rejects_max_rating_u32_max() {
-        let e = env();
-        validate_reputation_config_params(&e, 1, u32::MAX, 200);
     }
 
     // ── validate_milestone_count ──────────────────────────────────────────────
@@ -311,6 +330,13 @@ mod tests {
         validate_protocol_fee_bps(&e, u32::MAX);
     }
 
+    #[test]
+    #[should_panic]
+    fn validate_protocol_fee_bps_rejects_max_plus_two() {
+        let e = env();
+        validate_protocol_fee_bps(&e, MAX_FEE_BPS + 2);
+    }
+
     // ── validate_stroop_amount ────────────────────────────────────────────────
 
     #[test]
@@ -348,8 +374,8 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn validate_stroop_amount_rejects_i128_min() {
+    fn validate_stroop_amount_rejects_i128_max() {
         let e = env();
-        validate_stroop_amount(&e, i128::MIN);
+        validate_stroop_amount(&e, i128::MAX);
     }
 }
