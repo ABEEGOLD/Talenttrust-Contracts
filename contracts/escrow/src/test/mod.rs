@@ -3,6 +3,7 @@
 pub use soroban_sdk::testutils::Events as _;
 pub use soroban_sdk::testutils::Address as _;
 pub use soroban_sdk::testutils::Address as _;
+pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
 use crate::{
@@ -53,7 +54,7 @@ mod test_pause_scope;
 mod storage_validation;
 mod event_assertions;
 mod lifecycle_invariants;
-mod fuzz_test;
+mod state_invariants;
 mod governance_proposal;
 mod simulate_create_contract;
 mod simulate_deposit;

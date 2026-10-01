@@ -27,17 +27,12 @@
 //! All functions are pure (no side-effects) and intended to be called at the
 //! top of the corresponding entrypoint, before any state mutation occurs.
 //!
-//! # Validation boundaries
+//! # State invariants
 //!
-//! Each validator defines a closed interval of accepted inputs and rejects
-//! everything else deterministically. The boundaries are:
-//!
-//! * `validate_escrow_total_cap`: `(0, i128::MAX]`
-//! * `validate_reputation_config_params`: `min_rating ∈ [1, 10]`,
-//!   `max_rating ∈ [min_rating, 10]`, `max_comment_bytes ∈ [1, 1000]`
-//! * `validate_milestone_count`: `[1, MAX_MILESTONES]`
-//! * `validate_protocol_fee_bps`: `[0, MAX_FEE_BPS]`
-//! * `validate_stroop_amount`: `(0, MAX_SINGLE_AMOUNT_STROOPS]`
+//! Every validator in this module is a pure predicate over its inputs and
+//! MUST be invoked before any storage write in the corresponding entrypoint.
+//! Rejections panic with a typed error and leave storage untouched, so a
+//! failed validation can never leave a partially-mutated state behind.
 
 use crate::milestones_consts::MAX_SINGLE_AMOUNT_STROOPS;
 use crate::milestones_consts::{
@@ -64,8 +59,9 @@ use soroban_sdk::panic_with_error;
 /// Panics with [`Error::InvalidProtocolParameters`] when the cap is out
 /// of range.
 ///
-/// # Invariant
-/// Guarantees `max_escrow_total_stroops > 0` on return.
+/// # Invariants
+/// * The stored cap is strictly positive, so `total_escrowed <= cap` remains
+///   satisfiable for any non-negative escrow total.
 pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i128) {
     if max_escrow_total_stroops <= 0 {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -88,10 +84,11 @@ pub(crate) fn validate_escrow_total_cap(env: &Env, max_escrow_total_stroops: i12
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when any bound is violated.
 ///
-/// # Invariant
-/// Guarantees `MIN_RATING <= min_rating <= max_rating <= MAX_REPUTATION_CONFIG_RATING_CEILING`
-/// and `MIN_COMMENT_BYTES <= max_comment_bytes <= MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`
-/// on return.
+/// # Invariants
+/// * `MIN_RATING <= min_rating <= max_rating <= MAX_REPUTATION_CONFIG_RATING_CEILING`,
+///   so the accepted rating window is never empty and never exceeds the
+///   protocol ceiling.
+/// * `MIN_COMMENT_BYTES <= max_comment_bytes <= MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING`.
 pub(crate) fn validate_reputation_config_params(
     env: &Env,
     min_rating: u32,
@@ -127,8 +124,9 @@ pub(crate) fn validate_reputation_config_params(
 /// Panics with [`EscrowError::EmptyMilestones`] when `count == 0` or
 /// [`EscrowError::TooManyMilestones`] when `count > MAX_MILESTONES`.
 ///
-/// # Invariant
-/// Guarantees `1 <= count <= MAX_MILESTONES` on return.
+/// # Invariants
+/// * `1 <= count <= MAX_MILESTONES`, so downstream milestone indexing is
+///   always in-bounds and the empty-milestones state is unreachable.
 pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
     if count == 0 {
         env.panic_with_error(EscrowError::EmptyMilestones);
@@ -149,8 +147,9 @@ pub(crate) fn validate_milestone_count(env: &Env, count: u32) {
 /// # Panics
 /// Panics with [`Error::InvalidProtocolParameters`] when `bps > MAX_FEE_BPS`.
 ///
-/// # Invariant
-/// Guarantees `bps <= MAX_FEE_BPS` on return.
+/// # Invariants
+/// * `bps <= MAX_FEE_BPS`, so fee arithmetic cannot exceed the total amount
+///   and the payout invariant `net + fee == gross` holds.
 pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
     if bps > MAX_FEE_BPS {
         env.panic_with_error(Error::InvalidProtocolParameters);
@@ -170,8 +169,9 @@ pub(crate) fn validate_protocol_fee_bps(env: &Env, bps: u32) {
 /// Panics with [`EscrowError::AmountMustBePositive`] when `amount <= 0` or
 /// [`EscrowError::InvalidMilestoneAmount`] when the amount exceeds the cap.
 ///
-/// # Invariant
-/// Guarantees `0 < amount <= MAX_SINGLE_AMOUNT_STROOPS` on return.
+/// # Invariants
+/// * `0 < amount <= MAX_SINGLE_AMOUNT_STROOPS`, so no zero-value or
+///   overflow-prone amount can be persisted.
 pub(crate) fn validate_stroop_amount(env: &Env, amount: i128) {
     if amount <= 0 {
         env.panic_with_error(crate::EscrowError::AmountMustBePositive);

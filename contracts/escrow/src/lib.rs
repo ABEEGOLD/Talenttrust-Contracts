@@ -665,6 +665,14 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
+        // Invariant: released + refunded + accumulated fees must never exceed
+        // the total funded amount. Check before any state mutation or transfer.
+        if contract.released_amount + contract.refunded_amount + accumulated_fees + gross_amount
+            > contract.funded_amount
+        {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
+
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
@@ -909,12 +917,19 @@ impl Escrow {
             .get(&DataKey::AccumulatedProtocolFees)
             .unwrap_or(0);
 
-        let available_balance = contract
-            .funded_amount
-            .checked_sub(contract.released_amount)
-            .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
-            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+        // Invariant: released + refunded + accumulated fees + batch gross must
+        // never exceed the total funded amount. Check before any mutation.
+        if contract.released_amount + contract.refunded_amount + accumulated_fees
+            + total_gross_amount
+            > contract.funded_amount
+        {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
+        }
+
+        let available_balance = contract.funded_amount
+            - contract.released_amount
+            - contract.refunded_amount
+            - accumulated_fees;
 
         if available_balance < total_gross_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -1690,6 +1705,20 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         if available_balance < total_refund_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
+        }
+
+        // Invariant: released + refunded + accumulated fees + new refund must
+        // never exceed the total funded amount. Check before any mutation.
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+        if contract.released_amount + contract.refunded_amount + accumulated_fees
+            + total_refund_amount
+            > contract.funded_amount
+        {
+            env.panic_with_error(EscrowError::AccountingInvariantViolated);
         }
 
         let token = Self::read_settlement_token(&env)
