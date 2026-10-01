@@ -272,7 +272,7 @@ pubc(crate) fn get_average_rating(env: &Env, address: Address) -> Option<i128> {
         .persistent()
         .get(&DataKey::Reputation(address))?;
 
-    if rep.completed_contracts == 0 {
+    if rep.completed_contracts <= 0 {
         return None;
     }
 
@@ -314,7 +314,10 @@ pub(crate) fn get_reputations_page(
 
     let mut res: Vec<types::ReputationEntry> = Vec::new(env);
     for i in start_usize..end {
-        let acct = idx.get(i as u32).unwrap();
+        let acct = match idx.get(i as u32) {
+            Some(a) => a,
+            None => continue,
+        };
         let rep: types::Reputation = env
             .storage()
             .persistent()

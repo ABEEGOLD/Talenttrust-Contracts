@@ -2927,7 +2927,8 @@ impl Escrow {
     // 1â€“5 scale).  Clients divide by `10_000` to recover the decimal value.
     //
     // Checked arithmetic is used throughout; division by zero is impossible
-    // because `None` is returned whenever `completed_contracts == 0`.
+    // because `None` is returned whenever `completed_contracts <= 0` (covers
+    // both empty v1 records and corrupted negative counts without host traps).
     pub fn get_average_rating(env: Env, address: Address) -> Option<i128> {
         // Basis-point scaling factor (Ã—10 000 preserves four decimal places).
         const SCALE: i128 = 10_000;
@@ -2937,7 +2938,7 @@ impl Escrow {
             .persistent()
             .get(&DataKey::Reputation(address))?;
 
-        if rep.completed_contracts == 0 {
+        if rep.completed_contracts <= 0 {
             return None;
         }
 
@@ -2965,7 +2966,9 @@ impl Escrow {
     ///
     /// Empty-safe: returns empty Vec when the index is missing, start is out-of-range,
     /// or limit is 0. Each returned element includes the account address and the
-    /// stored reputation snapshot.
+    /// stored reputation snapshot. Missing records (legacy gaps) yield default
+    /// entries; corrupted index slots are skipped without host traps. Read-only:
+    /// never writes reputation data or version markers.
     pub fn get_reputations_page(env: Env, start: u32, limit: u32) -> Vec<types::ReputationEntry> {
         let limit = limit.min(PAGE_CEILING);
         if limit == 0 {
@@ -2987,7 +2990,12 @@ impl Escrow {
 
         let mut res: Vec<types::ReputationEntry> = Vec::new(&env);
         for i in start_usize..end {
-            let acct = idx.get(i as u32).unwrap();
+            // Defensive: skip corrupted index slots instead of trapping so a
+            // single bad entry cannot break pagination for legacy v1/v2 mixes.
+            let acct = match idx.get(i as u32) {
+                Some(a) => a,
+                None => continue,
+            };
             let rep: types::Reputation = env
                 .storage()
                 .persistent()

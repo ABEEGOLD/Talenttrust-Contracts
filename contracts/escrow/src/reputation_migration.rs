@@ -33,6 +33,21 @@
 //! * Permissionless: no auth required; migration never escalates privilege and
 //!   never deletes or alters reputation field values.
 //!
+//! ## Compatibility contract (preserved)
+//!
+//! * v1 records (marker absent, `0`, or `1`) stay readable through
+//!   `get_reputation`, `get_average_rating`, and `get_reputations_page` with
+//!   identical results before and after migration (except the marker itself).
+//! * Empty/absent data → `None` (single reads) or empty `Vec` (pages), never a
+//!   panic or host trap.
+//! * Future markers (`> REPUTATION_STORAGE_VERSION`) are forward-compatible
+//!   no-ops: data untouched, `false` returned, no downgrade.
+//! * Corrupted/unexpected markers (`0`, out-of-range) never panic and never
+//!   regress state: with a record they heal forward to v2, without a record
+//!   they no-op with zero writes.
+//! * All query paths are side-effect free for reputation data and markers;
+//!   explicit `migrate_reputation_storage` and `issue_reputation` own writes.
+//!
 //! ## Append-only error codes
 //!
 //! No new `EscrowError` variants are required; the function returns `false`
@@ -91,7 +106,18 @@ pub(crate) fn write_reputation_version(env: &Env, address: &Address) {
 pub(crate) fn migrate_reputation_storage_impl(env: &Env, address: &Address) -> bool {
     let current_version = read_reputation_version(env, address);
 
-    if current_version >= REPUTATION_STORAGE_VERSION {
+    // Defensive version gate: never panic, never regress.
+    // - Future markers (> CURRENT) are forward-compatible no-ops (no downgrade).
+    // - Current markers are no-ops.
+    // - Anything older (absent→1, `0`, `1`) falls through to heal/migrate.
+    // - Corrupted markers decode via `unwrap_or(1)` to the legacy path, which
+    //   heals forward when a record exists and no-ops with zero writes when
+    //   absent.
+    if current_version > REPUTATION_STORAGE_VERSION {
+        // Future schema — leave untouched for a newer build to handle.
+        return false;
+    }
+    if current_version == REPUTATION_STORAGE_VERSION {
         // Already at current version — nothing to do.
         return false;
     }
@@ -116,7 +142,10 @@ pub(crate) fn migrate_reputation_storage_impl(env: &Env, address: &Address) -> b
 
     write_reputation_version(env, address);
 
-    true
+    // Verify the seal so callers get a deterministic result: `true` only when
+    // the marker is confirmed at CURRENT. A failed seal reports `false` so a
+    // retry stays safe instead of claiming success.
+    read_reputation_version(env, address) == REPUTATION_STORAGE_VERSION
 }
 
 // ── Migration-on-read (opt-in helper, NOT wired to getters) ──────────────────
