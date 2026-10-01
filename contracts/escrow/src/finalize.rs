@@ -367,8 +367,9 @@ impl Escrow {
 ///
 /// `finalizer` must authorize the call and must be the stored client,
 /// freelancer, or assigned arbiter. Finalization is allowed only while the
-/// contract is `Completed` or `Disputed`. Once finalized, future
-/// contract-specific mutations fail with `AlreadyFinalized`.
+/// contract is in a terminal state: `Completed`, `Disputed`, `Refunded`,
+/// or `Cancelled`. Once finalized, future contract-specific mutations
+/// fail with `AlreadyFinalized`.
 ///
 /// # Execution order
 ///
@@ -395,38 +396,54 @@ impl Escrow {
 /// - `ContractPaused` when pause controls are active.
 /// - `EmergencyActive` when emergency controls are active.
 /// - `UnauthorizedRole` when `finalizer` is not a contract participant.
-/// - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
-/// - `FinalizationStateIncomplete` when the milestone vector is missing.
-/// - `AccountingInvariantViolated` when the contract accounting and its close
-///   summary cannot be reconciled.
-/// - `PotentialOverflow` when a summary total cannot be represented.
+/// - `InvalidStatusTransition` unless status is a terminal state.
 pub fn finalize_contract_impl(env: &Env, contract_id: u32, finalizer: Address) -> bool {
     // ── Phase 1: preconditions ───────────────────────────────────────────
     // Nothing below this point writes to storage.
 
-    // (1) Bounds first: a zero id is never allocated, so it must not reach a
-    // storage lookup and be reported as a plain miss.
-    crate::storage::validate_contract_id_bounds(env, contract_id);
+    let contract = Escrow::load_contract_for_finalization(&env, contract_id);
 
-    // (2) Idempotency. A retry after a successful seal is refused here, which
-    // is what makes the entrypoint safe to repeat under concurrent submits:
-    // the first writer wins and every later one is rejected without touching
-    // state or emitting a duplicate event.
-    Escrow::require_not_finalized(env, contract_id);
-
-    // (3) Global safety rails before any state-derived verdict, so a paused
-    // contract reports `ContractPaused` rather than whatever status happens to
-    // make the call look invalid.
-    Escrow::require_not_paused(env);
-
-    // (4) The contract must exist and be in a sealable state.
-    let contract = Escrow::load_contract_for_finalization(env, contract_id);
-    if !is_sealable_status(contract.status) {
+    // Validate contract is in a terminal state eligible for finalization
+    let is_terminal = matches!(
+        contract.status,
+        ContractStatus::Completed
+            | ContractStatus::Disputed
+            | ContractStatus::Refunded
+            | ContractStatus::Cancelled
+    );
+    if !is_terminal {
         env.panic_with_error(EscrowError::InvalidStatusTransition);
     }
 
-    // (5) Authorization. `require_auth` before the role check so an unrelated
-    // address cannot be told whether it is a participant.
+    // Validate accounting invariants before finalizing
+    let refundable_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|a| a.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+    if refundable_balance < 0 {
+        env.panic_with_error(Error::AccountingInvariantViolated);
+    }
+
+    // For Completed contracts, verify all funds are accounted for
+    if contract.status == ContractStatus::Completed {
+        let total_accounted = contract
+            .released_amount
+            .checked_add(contract.refunded_amount)
+            .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
+        if total_accounted != contract.funded_amount {
+            env.panic_with_error(Error::AccountingInvariantViolated);
+        }
+    }
+
+    // For Refunded and Cancelled contracts, verify full refund
+    if contract.status == ContractStatus::Refunded || contract.status == ContractStatus::Cancelled {
+        if contract.refunded_amount != contract.funded_amount {
+            env.panic_with_error(Error::AccountingInvariantViolated);
+        }
+    }
+
+    Escrow::require_not_paused(&env);
     finalizer.require_auth();
     Escrow::require_finalizer_role(env, &contract, &finalizer);
 

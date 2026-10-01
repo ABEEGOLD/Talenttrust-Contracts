@@ -1420,8 +1420,9 @@ impl Escrow {
     //
     // `finalizer` must authorize the call and must be the stored client,
     // freelancer, or assigned arbiter. Finalization is allowed only while the
-    // contract is `Completed` or `Disputed`. Once finalized, future
-    // contract-specific mutations fail with `AlreadyFinalized`.
+    // contract is in a terminal state: `Completed`, `Disputed`, `Refunded`,
+    // or `Cancelled`. Once finalized, future contract-specific mutations
+    // fail with `AlreadyFinalized`.
     //
     // The close record is immutable, so the summary is fully validated before
     // anything is written: a rejected call leaves the contract unfinalized and
@@ -1434,10 +1435,8 @@ impl Escrow {
     // - `ContractPaused` when pause or emergency controls are active.
     // - `EmergencyActive` when emergency controls are active.
     // - `UnauthorizedRole` when `finalizer` is not a contract participant.
-    // - `InvalidStatusTransition` unless status is `Completed` or `Disputed`.
-    // - `FinalizationStateIncomplete` when the milestone vector is missing.
-    // - `AccountingInvariantViolated` when the accounting does not reconcile.
-    // - `PotentialOverflow` when a summary total cannot be represented.
+    // - `InvalidStatusTransition` unless status is a terminal state.
+    // - `AccountingInvariantViolated` if accounting is inconsistent.
     pub fn finalize_contract(env: Env, contract_id: u32, finalizer: Address) -> bool {
         finalize::finalize_contract_impl(&env, contract_id, finalizer)
     }
