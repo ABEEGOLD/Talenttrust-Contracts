@@ -4,8 +4,9 @@
 //! available escrow balance should be split for a `DisputeResolution` and tells
 //! the root dispute entrypoint whether the contract should end as `Completed`
 //! or `Refunded`. ABI-compatible wrappers in the crate root delegate here;
-//! this module owns dispute authorization, state changes, events, and writes to
-//! `DataKey::Contract(contract_id)`.
+//! this module owns dispute metadata persistence and payout arithmetic. Dispute
+//! authorization, state changes, and events live in the crate root entrypoints
+//! that call into these helpers.
 
 use crate::{
     safe_add_amounts, types::DisputeMetadataV0, Contract, ContractStatus, DataKey, DisputeConfig,
@@ -76,6 +77,11 @@ pub fn set_dispute_config(env: &Env, config: DisputeConfig) {
 /// - [`Error::AccountingInvariantViolated`] if available would be negative (corrupted state)
 /// - [`Error::PotentialOverflow`] if intermediate calculations overflow
 /// - [`Error::InvalidDisputeSplit`] for Split variant with negative legs or non-conserving sum
+///
+/// # Compatibility
+/// The returned [`DisputeInfo`] shape and the error variants above are part of
+/// the public contract for this module. Callers must not depend on positional
+/// tuple indexing; use the named fields.
 pub fn resolution_payouts(
     contract: &Contract,
     resolution: &DisputeResolution,
@@ -142,6 +148,10 @@ pub fn resolution_payouts(
 ///
 /// Returns `Refunded` only when the full deposit has been refunded.
 /// Otherwise returns `Completed`.
+///
+/// # Invariant
+/// This function is pure and deterministic: it depends only on the
+/// `funded_amount` and `refunded_amount` fields of `contract`.
 pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
     if contract.refunded_amount == contract.funded_amount {
         ContractStatus::Refunded
@@ -155,6 +165,9 @@ pub fn final_status_after_resolution(contract: &Contract) -> ContractStatus {
 // ---------------------------------------------------------------------------
 
 /// Persist dispute metadata for a contract.
+///
+/// Overwrites any existing record for `contract_id`. Callers that need
+/// idempotency must check [`get_dispute_storage_version`] first.
 pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMetadata) {
     env.storage()
         .persistent()
@@ -162,6 +175,8 @@ pub fn store_dispute_metadata(env: &Env, contract_id: u32, metadata: &DisputeMet
 }
 
 /// Remove dispute metadata for a contract.
+///
+/// Safe to call when no record exists; the operation is a no-op in that case.
 pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
     env.storage()
         .persistent()
@@ -169,6 +184,9 @@ pub fn clear_dispute_metadata(env: &Env, contract_id: u32) {
 }
 
 /// Return the schema version of the stored dispute metadata, or 0 if none exists.
+///
+/// Returns `0` when no record is present, and [`DISPUTE_STORAGE_VERSION`]
+/// otherwise. This is the canonical way to detect the presence of a dispute.
 pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
     if env
         .storage()
@@ -184,6 +202,12 @@ pub fn get_dispute_storage_version(env: &Env, contract_id: u32) -> u32 {
 /// Read dispute metadata with automatic v0 → v1 migration.
 ///
 /// Panics with `DisputeNotFound` when no record exists.
+///
+/// # Compatibility
+/// Records written with a schema version greater than
+/// [`DISPUTE_STORAGE_VERSION`] cause a panic with [`Error::InvalidState`]
+/// rather than being silently coerced, preserving forward-compatibility
+/// guarantees. v0 records are migrated in place and re-persisted as v1.
 pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
     if let Some(meta) = env
         .storage()
@@ -210,6 +234,9 @@ pub fn load_dispute_metadata(env: &Env, contract_id: u32) -> DisputeMetadata {
 }
 
 /// Migrate a v0 metadata record to the current schema version.
+///
+/// This function is pure and does not touch storage; callers are responsible
+/// for persisting the returned value via [`store_dispute_metadata`].
 pub fn migrate_dispute_metadata_v0_to_v1(v0: DisputeMetadataV0) -> DisputeMetadata {
     DisputeMetadata {
         schema_version: DISPUTE_STORAGE_VERSION,

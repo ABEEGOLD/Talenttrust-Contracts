@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Property-based tests for the disputes module.
 //!
 //! Randomized, deterministic coverage of every dispute invariant under
@@ -50,8 +51,6 @@
 //! ```
 //!
 //! Failing seeds are auto-saved to `proptest-regressions/dispute_proptest.txt`.
-
-#![cfg(test)]
 
 extern crate std;
 
