@@ -1,1 +1,186 @@
-I2AhY2ZnKHRlc3QpXQoKdXNlIGNyYXRlOjp7Q29udHJhY3RTdGF0dXMsIERhdGFLZXksIEVzY3JvdywgRXNjcm93Q2xpZW50LCBTdGF0ZVYxLCBTdGF0ZVYyfTsKdXNlIHNvcm9iYW5fc2RrOjp7dGVzdHV0aWxzOjpBZGRyZXNzIGFzIF8sIHZlYywgQWRkcmVzcywgRW52fTsKCi8vLyBTZWVkcyBsZWdhY3kgU3RhdGVWMSBpbnRvIHBlcnNpc3RlbnQgc3RvcmFnZSB0byBzaW11bGF0ZSBwcmUtbWlncmF0aW9uIGxlZGdlciBkYXRhLgpmbiBzZWVkX2xlZ2FjeV9zdGF0ZShlbnY6ICZFbnYsIGNvbnRyYWN0X2lkOiAmQWRkcmVzcywgc3RhdGU6IFN0YXRlVjEpIHsKICAgIGVudi5hc19jb250cmFjdChjb250cmFjdF9pZCwgfHwgewogICAgICAgIGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLnNldCgmRGF0YUtleTo6U3RhdGUsICZzdGF0ZSk7CiAgICB9KTsKfQoKI1t0ZXN0XQpmbiB0ZXN0X2dldF9zdGF0ZV9mb3J3YXJkX2NvbXBhdGlibGUoKSB7CiAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICBsZXQgY29udHJhY3RfaWQgPSBlbnYucmVnaXN0ZXIoRXNjcm93LCAoKSk7CiAgICBsZXQgY2xpZW50ID0gRXNjcm93Q2xpZW50OjpuZXcoJmVudiwgJmNvbnRyYWN0X2lkKTsKCiAgICBsZXQgY2xpZW50X2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBmcmVlbGFuY2VyX2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBtaWxlc3RvbmVzID0gdmVjWyZlbnYsIDEwMDBfaTEyOCwgMjAwMF9pMTI4XTsKCiAgICAvLyBJbmplY3QgbGVnYWN5IFN0YXRlVjEgZGlyZWN0bHkgaW50byB0aGUgcGVyc2lzdGVudCBzdG9yYWdlIHJlcHJlc2VudGluZyBwcmUtbWlncmF0aW9uIGxlZGdlciBkYXRhCiAgICBsZXQgbGVnYWN5X3N0YXRlID0gU3RhdGVWMSB7CiAgICAgICAgY2xpZW50OiBjbGllbnRfYWRkci5jbG9uZSgpLAogICAgICAgIGZyZWVsYW5jZXI6IGZyZWVsYW5jZXJfYWRkci5jbG9uZSgpLAogICAgICAgIG1pbGVzdG9uZXM6IG1pbGVzdG9uZXMuY2xvbmUoKSwKICAgIH07CiAgICAvLyBUaGUgZW52aXJvbm1lbnQgZGlyZWN0bHkgc2ltdWxhdGVzIHByZS1taWdyYXRpb24gZW52aXJvbm1lbnRzIGhlcmUgc2FmZWx5IG92ZXIgY29udHJhY3Qgc2NvcGVzCiAgICBzZWVkX2xlZ2FjeV9zdGF0ZSgmZW52LCAmY29udHJhY3RfaWQsIGxlZ2FjeV9zdGF0ZSk7CgogICAgLy8gRXhlY3V0ZSBzdGFuZGFyZCBmb3J3YXJkLWNvbXBhdGlibGUgcmVhZCBlbnRyeXBvaW50IGhhbmRsaW5nIHN0YW5kYXJkIHVwZ3JhZGVzIG5hdGl2ZWx5CiAgICBsZXQgYWN0aXZlX3N0YXRlOiBTdGF0ZVYyID0gY2xpZW50LmdldF9zdGF0ZSgpOwoKICAgIGFzc2VydF9lcSEoYWN0aXZlX3N0YXRlLmNsaWVudCwgY2xpZW50X2FkZHIpOwogICAgYXNzZXJ0X2VxIShhY3RpdmVfc3RhdGUuZnJlZWxhbmNlciwgZnJlZWxhbmNlcl9hZGRyKTsKICAgIGFzc2VydF9lcSEoYWN0aXZlX3N0YXRlLnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkNyZWF0ZWQpOwp9CgojW3Rlc3RdCmZuIHRlc3RfbWlncmF0ZV9zdGF0ZV9wZXJzaXN0ZW5jZSgpIHsKICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgIGVudi5tb2NrX2FsbF9hdXRocygpOyAvLyBCeXBhc3Mgc3RyaWN0IEF1dGggbGltaXRzIGR1cmluZyBlbnZpcm9ubWVudCB0ZXN0IGJvdW5kcyBleHBsaWNpdGx5CiAgICBsZXQgY29udHJhY3RfaWQgPSBlbnYucmVnaXN0ZXIoRXNjcm93LCAoKSk7CiAgICBsZXQgY2xpZW50ID0gRXNjcm93Q2xpZW50OjpuZXcoJmVudiwgJmNvbnRyYWN0X2lkKTsKCiAgICBsZXQgYWRtaW5fY2FsbGVyID0gQWRkcmVzczo6Z2VuZXJhdGUoJmVudik7CiAgICBsZXQgY2xpZW50X2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBmcmVlbGFuY2VyX2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBtaWxlc3RvbmVzID0gdmVjWyZlbnYsIDUwMDBfaTEyOF07CgogICAgbGV0IGxlZ2FjeV9zdGF0ZSA9IFN0YXRlVjEgewogICAgICAgIGNsaWVudDogY2xpZW50X2FkZHIuY2xvbmUoKSwKICAgICAgICBmcmVlbGFuY2VyOiBmcmVlbGFuY2VyX2FkZHIuY2xvbmUoKSwKICAgICAgICBtaWxlc3RvbmVzOiBtaWxlc3RvbmVzLmNsb25lKCksCiAgICB9OwoKICAgIHNlZWRfbGVnYWN5X3N0YXRlKCZlbnYsICZjb250cmFjdF9pZCwgbGVnYWN5X3N0YXRlKTsKCiAgICAvLyBFeGVjdXRlIG1pZ3JhdGlvbiBoYW5kbGluZyBsb2dpYyB2YWxpZGF0aW5nIEF1dGggY2hlY2tzIGJvdW5kcyBhbmQgcmV3cml0ZSBsb29wcwogICAgbGV0IHN1Y2Nlc3MgPSBjbGllbnQubWlncmF0ZV9zdGF0ZSgmYWRtaW5fY2FsbGVyKTsKICAgIGFzc2VydCEoc3VjY2Vzcyk7CgogICAgLy8gRXZhbHVhdGUgZGlyZWN0IHN0b3JhZ2UgcmV0cmlldmFsIHRvIGd1YXJhbnRlZSBtZW1vcnkgcGFyc2VkIFYyIGV4cGxpY2l0bHkgb250byBkYXRha2V5CiAgICBlbnYuYXNfY29udHJhY3QoJmNvbnRyYWN0X2lkLCB8fCB7CiAgICAgICAgbGV0IHNhdmVkX3N0YXRlOiBTdGF0ZVYyID0gZW52LnN0b3JhZ2UoKS5wZXJzaXN0ZW50KCkuZ2V0KCZEYXRhS2V5OjpTdGF0ZSkudW53cmFwKCk7CiAgICAgICAgYXNzZXJ0X2VxIShzYXZlZF9zdGF0ZS5zdGF0dXMsIENvbnRyYWN0U3RhdHVzOjpDcmVhdGVkKTsKICAgIH0pOwp9CgovLy8gUmVncmVzc2lvbjogYSBzZWNvbmQgbWlncmF0aW9uIGF0dGVtcHQgb24gYWxyZWFkeS1taWdyYXRlZCBzdGF0ZSBtdXN0IG5vdAovLy8gY29ycnVwdCB0aGUgY2Fub25pY2FsIFN0YXRlVjIgcmVjb3JkIG9yIHNpbGVudGx5IHJlc2V0IGl0IGJhY2sgdG8gQ3JlYXRlZC4KI1t0ZXN0XQpmbiB0ZXN0X21pZ3JhdGVfc3RhdGVfaWRlbXBvdGVudF9vbl9hbHJlYWR5X21pZ3JhdGVkKCkgewogICAgbGV0IGVudiA9IEVudjo6ZGVmYXVsdCgpOwogICAgZW52Lm1vY2tfYWxsX2F1dGhzKCk7CiAgICBsZXQgY29udHJhY3RfaWQgPSBlbnYucmVnaXN0ZXIoRXNjcm93LCAoKSk7CiAgICBsZXQgY2xpZW50ID0gRXNjcm93Q2xpZW50OjpuZXcoJmVudiwgJmNvbnRyYWN0X2lkKTsKCiAgICBsZXQgYWRtaW5fY2FsbGVyID0gQWRkcmVzczo6Z2VuZXJhdGUoJmVudik7CiAgICBsZXQgY2xpZW50X2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBmcmVlbGFuY2VyX2FkZHIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKICAgIGxldCBtaWxlc3RvbmVzID0gdmVjWyZlbnYsIDc1MF9pMTI4XTsKCiAgICBsZXQgbGVnYWN5X3N0YXRlID0gU3RhdGVWMSB7CiAgICAgICAgY2xpZW50OiBjbGllbnRfYWRkci5jbG9uZSgpLAogICAgICAgIGZyZWVsYW5jZXI6IGZyZWVsYW5jZXJfYWRkci5jbG9uZSgpLAogICAgICAgIG1pbGVzdG9uZXM6IG1pbGVzdG9uZXMuY2xvbmUoKSwKICAgIH07CiAgICBzZWVkX2xlZ2FjeV9zdGF0ZSgmZW52LCAmY29udHJhY3RfaWQsIGxlZ2FjeV9zdGF0ZSk7CgogICAgYXNzZXJ0IShjbGllbnQubWlncmF0ZV9zdGF0ZSgmYWRtaW5fY2FsbGVyKSk7CgogICAgLy8gU2Vjb25kIGludm9jYXRpb24gb24gYWxyZWFkeS1taWdyYXRlZCBzdGF0ZSBtdXN0IGJlIGEgZGV0ZXJtaW5pc3RpYyBuby1vcAogICAgLy8gYW5kIG11c3Qgbm90IGFsdGVyIHRoZSBjYW5vbmljYWwgcmVjb3JkLgogICAgbGV0IGZpcnN0OiBTdGF0ZVYyID0gZW52LmFzX2NvbnRyYWN0KCZjb250cmFjdF9pZCwgfHwgewogICAgICAgIGVudi5zdG9yYWdlKCkucGVyc2lzdGVudCgpLmdldCgmRGF0YUtleTo6U3RhdGUpLnVud3JhcCgpCiAgICB9KTsKICAgIGFzc2VydCEoY2xpZW50Lm1pZ3JhdGVfc3RhdGUoJmFkbWluX2NhbGxlcikpOwogICAgbGV0IHNlY29uZDogU3RhdGVWMiA9IGVudi5hc19jb250cmFjdCgmY29udHJhY3RfaWQsIHx8IHsKICAgICAgICBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5nZXQoJkRhdGFLZXk6OlN0YXRlKS51bndyYXAoKQogICAgfSk7CgogICAgYXNzZXJ0X2VxIShmaXJzdC5jbGllbnQsIHNlY29uZC5jbGllbnQpOwogICAgYXNzZXJ0X2VxIShmaXJzdC5mcmVlbGFuY2VyLCBzZWNvbmQuZnJlZWxhbmNlcik7CiAgICBhc3NlcnRfZXEhKGZpcnN0LnN0YXR1cywgc2Vjb25kLnN0YXR1cyk7CiAgICBhc3NlcnRfZXEhKGZpcnN0Lm1pbGVzdG9uZXMsIHNlY29uZC5taWxlc3RvbmVzKTsKfQoKLy8vIEJvdW5kYXJ5OiBtaWdyYXRpb24gb24gZW1wdHkgc3RvcmFnZSBtdXN0IGZhaWwgY2xvc2VkIHdpdGhvdXQgd3JpdGluZyBhbnkKLy8vIHBhcnRpYWwgb3IgZGVmYXVsdCBzdGF0ZS4KI1t0ZXN0XQpmbiB0ZXN0X21pZ3JhdGVfc3RhdGVfZW1wdHlfc3RvcmFnZV9mYWlsc19jbG9zZWQoKSB7CiAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICBlbnYubW9ja19hbGxfYXV0aHMoKTsKICAgIGxldCBjb250cmFjdF9pZCA9IGVudi5yZWdpc3RlcihFc2Nyb3csICgpKTsKICAgIGxldCBjbGllbnQgPSBFc2Nyb3dDbGllbnQ6Om5ldygmZW52LCAmY29udHJhY3RfaWQpOwoKICAgIGxldCBhZG1pbl9jYWxsZXIgPSBBZGRyZXNzOjpnZW5lcmF0ZSgmZW52KTsKCiAgICAvLyBObyBTdGF0ZSBpcyBzZWVkZWQ6IHRoZSBtaWdyYXRpb24gbXVzdCBub3QgaW52ZW50IGEgcmVjb3JkLgogICAgbGV0IHJlc3VsdCA9IGNsaWVudC50cnlfbWlncmF0ZV9zdGF0ZSgmYWRtaW5fY2FsbGVyKTsKICAgIGFzc2VydCEocmVzdWx0LmlzX2Vycm9yKCkpOwoKICAgIGVudi5hc19jb250cmFjdCgmY29udHJhY3RfaWQsIHx8IHsKICAgICAgICBhc3NlcnQhKCFlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5oYXMoJkRhdGFLZXk6OlN0YXRlKSk7CiAgICB9KTsKfQoKLy8vIFJlamVjdGlvbjogbWlncmF0aW9uIG11c3QgcmVxdWlyZSB0aGUgYWRtaW4gYXV0aG9yaXphdGlvbiBhbmQgbXVzdCBub3QK Ly8gbXV0YXRlIHN0YXRlIHdoZW4gYXV0aCBpcyBtaXNzaW5nLgojW3Rlc3RdCiNbc2hvdWxkX3BhbmljXQpmbiB0ZXN0X21pZ3JhdGVfc3RhdGVfcmVxdWlyZXNfYXV0aCgpIHsKICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgIC8vIE5vdGU6IG5vIG1vY2tfYWxsX2F1dGhzKCkgLS0gYXV0aCBtdXN0IGJlIGVuZm9yY2VkLgogICAgbGV0IGNvbnRyYWN0X2lkID0gZW52LnJlZ2lzdGVyKEVzY3JvdywgKCkpOwogICAgbGV0IGNsaWVudCA9IEVzY3Jvd0NsaWVudDo6bmV3KCZlbnYsICZjb250cmFjdF9pZCk7CgogICAgbGV0IGFkbWluX2NhbGxlciA9IEFkZHJlc3M6OmdlbmVyYXRlKCZlbnYpOwogICAgbGV0IGNsaWVudF9hZGRyID0gQWRkcmVzczo6Z2VuZXJhdGUoJmVudik7CiAgICBsZXQgZnJlZWxhbmNlcl9hZGRyID0gQWRkcmVzczo6Z2VuZXJhdGUoJmVudik7CiAgICBsZXQgbWlsZXN0b25lcyA9IHZlY1smZW52LCAxX2kxMjhdOwoKICAgIGxldCBsZWdhY3lfc3RhdGUgPSBTdGF0ZVYxIHsKICAgICAgICBjbGllbnQ6IGNsaWVudF9hZGRyLmNsb25lKCksCiAgICAgICAgZnJlZWxhbmNlcjogZnJlZWxhbmNlcl9hZGRyLmNsb25lKCksCiAgICAgICAgbWlsZXN0b25lczogbWlsZXN0b25lcy5jbG9uZSgpLAogICAgfTsKICAgIHNlZWRfbGVnYWN5X3N0YXRlKCZlbnYsICZjb250cmFjdF9pZCwgbGVnYWN5X3N0YXRlKTsKCiAgICAvLyBUaGlzIG11c3QgcGFuaWMgYmVjYXVzZSB0aGUgYWRtaW4gYXV0aCB3YXMgbm90IGdyYW50ZWQuCiAgICBsZXQgXyA9IGNsaWVudC5taWdyYXRlX3N0YXRlKCZhZG1pbl9jYWxsZXIpOwp9Cg==
+#![cfg(test)]
+
+use crate::schema_migration::{CURRENT_STORAGE_SCHEMA_VERSION, INITIAL_STORAGE_SCHEMA_VERSION};
+use crate::{DataKey, Error, Escrow, EscrowClient};
+use soroban_sdk::{testutils::Address as _, testutils::Events, Address, Env};
+
+struct MigrationFixture {
+    env: Env,
+    contract_id: Address,
+    admin: Address,
+}
+
+impl MigrationFixture {
+    fn initialized() -> Self {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(Escrow, ());
+        let admin = Address::generate(&env);
+        EscrowClient::new(&env, &contract_id).initialize(&admin);
+
+        Self {
+            env,
+            contract_id,
+            admin,
+        }
+    }
+
+    fn client(&self) -> EscrowClient<'_> {
+        EscrowClient::new(&self.env, &self.contract_id)
+    }
+
+    fn stored_version(&self) -> Option<u32> {
+        self.env.as_contract(&self.contract_id, || {
+            self.env.storage().persistent().get(&DataKey::SchemaVersion)
+        })
+    }
+
+    fn overwrite_version(&self, version: u32) {
+        self.env.as_contract(&self.contract_id, || {
+            self.env
+                .storage()
+                .persistent()
+                .set(&DataKey::SchemaVersion, &version);
+        });
+    }
+}
+
+#[test]
+fn legacy_read_is_side_effect_free_until_successful_migration() {
+    let fixture = MigrationFixture::initialized();
+
+    assert_eq!(
+        fixture.client().get_schema_version(),
+        INITIAL_STORAGE_SCHEMA_VERSION
+    );
+    assert_eq!(fixture.stored_version(), None);
+}
+
+#[test]
+fn authorized_upgrade_commits_version_and_one_diagnostic_event() {
+    let fixture = MigrationFixture::initialized();
+    assert_eq!(
+        fixture
+            .client()
+            .migrate_escrow_storage(&fixture.admin, &CURRENT_STORAGE_SCHEMA_VERSION),
+        CURRENT_STORAGE_SCHEMA_VERSION
+    );
+    let events = fixture.env.events().all();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events.last().expect("migration event").0,
+        fixture.contract_id
+    );
+    assert_eq!(
+        fixture.stored_version(),
+        Some(CURRENT_STORAGE_SCHEMA_VERSION)
+    );
+}
+
+#[test]
+fn duplicate_retry_is_idempotent_and_does_not_emit_a_second_event() {
+    let fixture = MigrationFixture::initialized();
+    let client = fixture.client();
+
+    assert_eq!(
+        client.migrate_escrow_storage(&fixture.admin, &CURRENT_STORAGE_SCHEMA_VERSION),
+        CURRENT_STORAGE_SCHEMA_VERSION
+    );
+    assert_eq!(fixture.env.events().all().len(), 1);
+
+    // A transaction racing the first call is retried against the committed
+    // marker. It must observe success without another write or event.
+    assert_eq!(
+        client.migrate_escrow_storage(&fixture.admin, &CURRENT_STORAGE_SCHEMA_VERSION),
+        CURRENT_STORAGE_SCHEMA_VERSION
+    );
+    assert_eq!(fixture.env.events().all().len(), 0);
+    assert_eq!(
+        fixture.stored_version(),
+        Some(CURRENT_STORAGE_SCHEMA_VERSION)
+    );
+}
+
+#[test]
+fn downgrade_is_rejected_without_mutating_committed_state() {
+    let fixture = MigrationFixture::initialized();
+    let client = fixture.client();
+    client.migrate_escrow_storage(&fixture.admin, &CURRENT_STORAGE_SCHEMA_VERSION);
+    assert_eq!(
+        client.try_migrate_escrow_storage(&fixture.admin, &INITIAL_STORAGE_SCHEMA_VERSION),
+        Err(Ok(Error::InvalidMigrationVersion))
+    );
+    assert_eq!(fixture.env.events().all().len(), 0);
+    assert_eq!(
+        fixture.stored_version(),
+        Some(CURRENT_STORAGE_SCHEMA_VERSION)
+    );
+}
+
+#[test]
+fn zero_and_future_targets_are_rejected_without_creating_a_marker() {
+    for target in [0, CURRENT_STORAGE_SCHEMA_VERSION + 1, u32::MAX] {
+        let fixture = MigrationFixture::initialized();
+        assert_eq!(
+            fixture
+                .client()
+                .try_migrate_escrow_storage(&fixture.admin, &target),
+            Err(Ok(Error::InvalidMigrationVersion))
+        );
+        assert_eq!(fixture.env.events().all().len(), 0);
+        assert_eq!(fixture.stored_version(), None);
+    }
+}
+
+#[test]
+fn corrupt_stored_versions_cannot_be_blessed_by_an_idempotent_retry() {
+    for corrupt_version in [0, CURRENT_STORAGE_SCHEMA_VERSION + 1, u32::MAX] {
+        let fixture = MigrationFixture::initialized();
+        fixture.overwrite_version(corrupt_version);
+        assert_eq!(
+            fixture
+                .client()
+                .try_migrate_escrow_storage(&fixture.admin, &corrupt_version),
+            Err(Ok(Error::InvalidMigrationVersion))
+        );
+        assert_eq!(fixture.env.events().all().len(), 0);
+        assert_eq!(fixture.stored_version(), Some(corrupt_version));
+    }
+}
+
+#[test]
+fn non_admin_is_rejected_before_any_schema_state_change() {
+    let fixture = MigrationFixture::initialized();
+    let attacker = Address::generate(&fixture.env);
+    assert_eq!(
+        fixture
+            .client()
+            .try_migrate_escrow_storage(&attacker, &CURRENT_STORAGE_SCHEMA_VERSION),
+        Err(Ok(Error::UnauthorizedRole))
+    );
+    assert_eq!(fixture.env.events().all().len(), 0);
+    assert_eq!(fixture.stored_version(), None);
+}
+
+#[test]
+fn uninitialized_contract_rejects_migration_without_writing_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Escrow, ());
+    let admin = Address::generate(&env);
+    let client = EscrowClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.try_migrate_escrow_storage(&admin, &CURRENT_STORAGE_SCHEMA_VERSION),
+        Err(Ok(Error::NotInitialized))
+    );
+    env.as_contract(&contract_id, || {
+        assert_eq!(
+            env.storage()
+                .persistent()
+                .get::<_, u32>(&DataKey::SchemaVersion),
+            None
+        );
+    });
+    assert_eq!(env.events().all().len(), 0);
+}

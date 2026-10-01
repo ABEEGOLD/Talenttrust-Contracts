@@ -3707,6 +3707,7 @@ mod proptest;
 #[cfg(test)]
 mod test;
 
-/// Amount compatibility contract tests, compiled only for native test builds.
+// Kept as a top-level test module because it verifies the public storage
+// migration boundary, including raw legacy/corrupt on-ledger markers.
 #[cfg(test)]
-mod simple_amount_test;
+mod migration_test;
