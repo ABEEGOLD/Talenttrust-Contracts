@@ -109,6 +109,52 @@ pub(crate) fn load_milestones(env: &Env, contract_id: u32) -> Vec<crate::Milesto
         .set(&(DataKey::Contract(contract_id), milestone_key), milestones);
 }
 
+/// Persist milestones for a contract, enforcing the same keying scheme used by
+/// [`load_milestones`].
+///
+/// This helper centralizes the write path so that concurrent or repeated
+/// milestone mutations always target the same storage slot and cannot diverge
+/// from the read path. Callers that mutate milestones must go through this
+/// function to keep the read/write invariant intact.
+///
+/// # Arguments
+/// * `env` - The contract environment
+/// * `contract_id` - The contract ID whose milestones to store
+/// * `milestones` - The milestone vector to persist
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+pub(crate) fn store_milestones(
+    env: &Env,
+    contract_id: u32,
+    milestones: &Vec<crate::Milestone>,
+) {
+    validate_contract_id_bounds(env, contract_id);
+    let milestone_key = Symbol::new(env, "milestones");
+    env.storage()
+        .persistent()
+        .set(&(DataKey::Contract(contract_id), milestone_key), milestones);
+}
+
+/// Load milestones for a contract, requiring that the contract itself exists.
+///
+/// Unlike [`load_milestones`], this variant first loads the parent contract so
+/// that a missing contract surfaces as `ContractNotFound` even if a stale
+/// milestone vector happens to be present. This prevents orphaned milestone
+/// data from being observed after a contract has been removed or never created.
+///
+/// # Panics
+/// - `InvalidContractId` if `contract_id` is 0
+/// - `ContractNotFound` if the contract or its milestones are missing
+pub(crate) fn load_milestones_checked(
+    env: &Env,
+    contract_id: u32,
+) -> Vec<crate::Milestone> {
+    validate_contract_id_bounds(env, contract_id);
+    let _ = load_contract(env, contract_id);
+    load_milestones(env, contract_id)
+}
+
 /// Load a contract, optionally with precondition checks for mutation.
 ///
 /// This is the primary helper for loading contracts with optional safety guards:
@@ -545,6 +591,141 @@ mod tests {
             assert_eq!(loaded.len(), 2);
             assert_eq!(loaded.get(0).unwrap().amount, 1000);
             assert_eq!(loaded.get(1).unwrap().amount, 2000);
+        });
+    }
+
+    #[test]
+    fn test_store_milestones_round_trip() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 500,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 7, &milestones);
+            let loaded = load_milestones(&env, 7);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 500);
+        });
+    }
+
+    #[test]
+    fn test_store_milestones_overwrite_is_idempotent() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let first = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 100,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let second = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 200,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 9, &first);
+            store_milestones(&env, 9, &second);
+            store_milestones(&env, 9, &second);
+            let loaded = load_milestones(&env, 9);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 200);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_store_milestones_zero_id_panics() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::new(&env);
+            store_milestones(&env, 0, &milestones);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractNotFound")]
+    fn test_load_milestones_checked_missing_contract() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 100,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            let milestone_key = Symbol::new(&env, "milestones");
+            env.storage()
+                .persistent()
+                .set(&(DataKey::Contract(77), milestone_key), &milestones);
+            load_milestones_checked(&env, 77);
+        });
+    }
+
+    #[test]
+    fn test_load_milestones_checked_with_contract() {
+        let (env, admin) = setup_test_env();
+        env.as_contract(&admin, || {
+            let client = Address::generate(&env);
+            let freelancer = Address::generate(&env);
+            let contract = Contract {
+                client: client.clone(),
+                freelancer: freelancer.clone(),
+                arbiter: None,
+                status: crate::ContractStatus::Created,
+                release_authorization: crate::ReleaseAuthorization::ClientOnly,
+                funded_amount: 0,
+                released_amount: 0,
+                refunded_amount: 0,
+                total_deposited: 0,
+                reputation_issued: false,
+            };
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(11), &contract);
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 42,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    deadline: None,
+                    refunded_amount: 0,
+                    work_evidence: None,
+                }],
+            );
+            store_milestones(&env, 11, &milestones);
+            let loaded = load_milestones_checked(&env, 11);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded.get(0).unwrap().amount, 42);
         });
     }
 

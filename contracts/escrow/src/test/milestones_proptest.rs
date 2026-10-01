@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Property-based tests for milestone invariants.
 //!
 //! Tests core invariants that must hold across randomized milestone configurations:
