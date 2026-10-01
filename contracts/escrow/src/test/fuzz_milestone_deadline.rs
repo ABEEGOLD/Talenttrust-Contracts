@@ -26,6 +26,9 @@ use soroban_sdk::{testutils::Ledger, Address, Env, Symbol, Vec as SorobanVec};
 use super::{create_contract, register_client};
 use crate::{DataKey, Milestone};
 
+/// Number of fuzz cases used for the compatibility-contract suite.
+const COMPAT_CASES: u32 = 256;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Set the ledger timestamp to an absolute number of seconds.
@@ -261,6 +264,7 @@ proptest! {
             "now_before={} < deadline={} must not be overdue",
             now_before, deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // at exact boundary: now = deadline (must NOT be overdue)
         set_now(&env, deadline);
@@ -268,6 +272,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "now == deadline must not be overdue (strict >)"
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // after: now = deadline + delta_after (must be overdue)
         let now_after = deadline.saturating_add(delta_after);
@@ -323,6 +328,7 @@ proptest! {
             !client.is_milestone_overdue(&id, &0),
             "deadline={}, now=deadline must not be overdue", deadline
         );
+        assert_overdue_compat_contract(&env, &client, &id, &0, false);
 
         // One past deadline
         set_now(&env, deadline + 1);
@@ -406,6 +412,7 @@ proptest! {
             !client.is_milestone_overdue(&bad_id, &0),
             "unknown contract {} must not be overdue", bad_id
         );
+        assert_overdue_compat_contract(&env, &client, &bad_id, &0, false);
     }
 
     /// Out-of-bounds milestone index must return false.
