@@ -26,7 +26,7 @@
 use crate::ttl::GOVERNANCE_PROPOSAL_TTL_LEDGERS;
 use crate::{
     Escrow, EscrowClient, Error, GovernanceProposalKind, GovernanceProposalState,
-    GovernedParameters, MAX_FEE_BPS,
+    GovernedParameters, MAX_FEE_BPS, MIN_MAX_MILESTONES,
 };
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _, LedgerInfo};
 use soroban_sdk::{symbol_short, Address, Env, Symbol, TryFromVal};
@@ -248,7 +248,7 @@ fn request_with_invalid_max_milestones_rejected() {
     let (client, _) = new_client(&env);
 
     // 0 milestones is below MIN_MAX_MILESTONES.
-    let bad_kind = GovernanceProposalKind::SetMaxMilestones(0);
+    let bad_kind = GovernanceProposalKind::SetMaxMilestones(MIN_MAX_MILESTONES.saturating_sub(1));
     let result = client.try_request_governance_proposal(&bad_kind);
     assert_err(result, Error::LimitOutOfRange);
 }
