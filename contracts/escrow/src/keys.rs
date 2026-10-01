@@ -86,10 +86,13 @@ pub fn milestone_key(env: &Env, contract_id: u32) -> Result<(DataKey, Symbol), u
 
 /// a partial failure to address the same storage slot.
 pub fn milestone_symbol(env: &Env) -> Symbol {
+
     Symbol::new(env, "milestones")
+
 }
 
 /// Returns the temporary storage key for milestone release approvals:
+
 /// `DataKey::MilestoneApprovals(contract_id, milestone_index)`.
 ///
 /// # Errors
