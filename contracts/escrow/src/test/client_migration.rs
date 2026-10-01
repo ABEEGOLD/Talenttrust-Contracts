@@ -8,7 +8,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::Address as _, testutils::Events, testutils::Ledger as _, testutils::LedgerInfo,
-    Address, Env, IntoVal, Symbol, TryFromVal, Val,
+    Address, Env, Symbol, TryFromVal,
 };
 
 use super::{assert_contract_error, create_contract, register_client, total_milestone_amount};
@@ -784,4 +784,34 @@ fn propose_and_accept_actually_updates_contract_client() {
     // contract.client must be updated
     let contract = client.get_contract(&id);
     assert_eq!(contract.client, new_client);
+}
+
+#[test]
+fn accepting_migration_preserves_all_other_contract_fields() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let initial = env.ledger().get();
+    env.ledger().set(LedgerInfo {
+        sequence_number: initial.sequence_number,
+        timestamp: initial.timestamp,
+        protocol_version: initial.protocol_version,
+        network_id: initial.network_id.clone(),
+        base_reserve: initial.base_reserve,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+        max_entry_ttl: PENDING_MIGRATION_TTL_LEDGERS * 4,
+    });
+
+    let client = register_client(&env);
+    let (client_addr, _freelancer_addr, id) = create_contract(&env, &client);
+    let new_client = Address::generate(&env);
+    let before = client.get_contract(&id);
+
+    assert!(client.propose_client_migration(&id, &client_addr, &new_client));
+    assert!(client.accept_client_migration(&id, &new_client));
+
+    let mut expected = before;
+    expected.client = new_client;
+    assert_eq!(client.get_contract(&id), expected);
 }

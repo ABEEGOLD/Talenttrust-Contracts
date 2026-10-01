@@ -114,6 +114,19 @@ pub const MAX_REPUTATION_CONFIG_RATING_CEILING: u32 = 10;
 /// This caps how large the `max_comment_bytes` field can be set by admin.
 pub const MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING: u32 = 1_000;
 
+/// Maximum number of deterministic recovery attempts allowed for transient failures
+/// during milestone operations or batch releases.
+///
+/// Ensures failure recovery is bounded and deterministic, preventing infinite loops
+/// or resource exhaustion when recovering from adverse conditions.
+pub const MAX_RECOVERY_ATTEMPTS: u32 = 3;
+
+/// Maximum time-to-live (in ledgers) for transient failure recovery tracking.
+///
+/// Defines the observability window for failed states, ensuring failures are
+/// recoverable and diagnosable without silent data loss. (17280 ledgers ≈ 1 day).
+pub const RECOVERY_TTL_LEDGERS: u32 = 17_280;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +147,15 @@ mod tests {
         assert_eq!(MIN_WORK_EVIDENCE_BYTES, 1);
         assert_eq!(MAX_REPUTATION_CONFIG_RATING_CEILING, 10);
         assert_eq!(MAX_REPUTATION_CONFIG_COMMENT_BYTES_CEILING, 1_000);
+        assert_eq!(MAX_RECOVERY_ATTEMPTS, 3);
+        assert_eq!(RECOVERY_TTL_LEDGERS, 17_280);
+    }
+
+    /// Recovery limits must be deterministic and proper non-empty values.
+    #[test]
+    fn recovery_limits_are_deterministic() {
+        assert!(MAX_RECOVERY_ATTEMPTS > 0, "MAX_RECOVERY_ATTEMPTS must be > 0");
+        assert!(RECOVERY_TTL_LEDGERS > 0, "RECOVERY_TTL_LEDGERS must be > 0");
     }
 
     /// MAX_FEE_BPS must equal the denominator — charging 100 % is the ceiling.
