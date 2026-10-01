@@ -139,8 +139,7 @@ impl Escrow {
     /// # Errors
     /// * [`EscrowError::UnauthorizedRole`] — caller is not the current client.
     /// * [`EscrowError::RoleOverlap`] — proposed address overlaps an existing role.
-    /// * [`EscrowError::InvalidState`] — a live pending migration already
-    ///   exists, or the proposed client equals the current client.
+    /// * [`EscrowError::InvalidState`] — a different pending migration already exists.
     pub(crate) fn propose_client_migration_impl(
         env: &Env,
         contract_id: u32,
@@ -157,13 +156,17 @@ impl Escrow {
             env.panic_with_error(EscrowError::UnauthorizedRole);
         }
         Self::require_migration_allowed(&env, contract.status);
-        // Reject self-migration before any state mutation.
-        Self::require_distinct_client(&env, &contract.client, &nW_client);
-        Self::require_no_role_overlap(env, &contract, &new_client);
-        // At most one live pending migration per contract.
-        if Self::pending_migration_exists(&env, contract_id) {
+
+        let key = Self::pending_migration_key(contract_id);
+        if let Some(pending) = read_if_live::<_, PendingClientMigration>(env, &key) {
+            // Identical retries are a no-op; conflicting proposals must not
+            // replace the request already authorized by the current client.
+            if pending.current_client == current_client && pending.proposed_client == new_client {
+                return true;
+            }
             env.panic_with_error(EscrowError::InvalidState);
         }
+        Self::require_no_role_overlap(env, &contract, &new_client);
 
         let requested_at = env.ledger.sequence();
         let expires_at = requested_at.saturating_add(PENDING_MIGRATION_TTL_LEDGERS);
@@ -175,7 +178,7 @@ impl Escrow {
         };
         store_with_ttl(
             &env,
-            &Self::pending_migration_key(contract_id),
+            &key,
             &pending,
             PENDING_MIGRATION_TTL_LEDGERS,
         );
