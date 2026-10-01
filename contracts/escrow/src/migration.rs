@@ -26,27 +26,44 @@ pub struct PendingClientMigration {
     pub expires_at_ledger: u32,
 }
 
+/// Record of a completed migration, used to make recovery deterministic.
+///
+/// This is written in the same logical step as the contract update and the
+/// pending-migration removal, so a retry or partial failure can always observe
+/// whether the migration already completed and avoid double-applying it.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompletedClientMigration {
+    pub previous_client: Address,
+    pub current_client: Address,
+    pub completed_at_ledger: u32,
+}
+
 impl Escrow {
     pub(crate) fn pending_migration_key(contract_id: u32) -> DataKey {
         DataKey::PendingClientMigration(contract_id)
+    }
+
+    pub(crate) fn completed_migration_key(contract_id: u32) -> DataKey {
+        DataKey::CompletedClientMigration(contract_id)
     }
 
     pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
         env.storage()
             .persistent()
             .get::<_, Contract>(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
+            .unwrap_or_else(`|| env.panic_with_error(Error::ContractNotFound))
     }
 
     pub(crate) fn require_migration_allowed(env: &Env, status: ContractStatus) {
-        if matches!(
+        if matches(
             status,
             ContractStatus::Completed
                 | ContractStatus::Cancelled
                 | ContractStatus::Refunded
                 | ContractStatus::Disputed
         ) {
-            env.panic_with_error(Error::InvalidStatusTransition);
+            env.panic_with_error(Error::InvalidStateTransition);
         }
     }
 
@@ -204,6 +221,22 @@ impl Escrow {
         Self::require_not_finalized(&env, contract_id);
         Self::require_migration_allowed(&env, contract.status);
 
+        // Recovery: a previous attempt may have committed the client update
+        // and the completion record, but failed before the pending entry was
+        // removed (or the caller is retrying). If the completion record
+        // already matches the requested client, treat the call as already
+        // applied and return successfully without re-applying or re-emitting.
+        if let Some(completed) = Self::load_completed_migration(&env, contract_id) {
+            if completed.current_client == new_client {
+                // Ensure the pending entry is gone so future calls see a clean state.
+                remove_transient(&env, &Self::pending_migration_key(contract_id));
+                return true;
+            }
+            // A different migration already completed; reject to avoid
+            // conflicting state transitions.
+            env.panic_with_error(EscrowError::InvalidState);
+        }
+
         let key = Self::pending_migration_key(contract_id);
         let pending: PendingClientMigration = Self::load_live_pending_migration(
             &env,
@@ -228,11 +261,24 @@ impl Escrow {
         // address was updated via another mechanism).
         Self::require_no_role_overlap(env, &contract, &nW_client);
 
-        // Persist the updated client address
+        // Preserve the complete stored contract record; migration changes only
+        // the client role and must not reset accounting or other contract state.
         contract.client = new_client.clone();
         env.storage()
             .persistent()
             .set(&DataKey::Contract(contract_id), &contract);
+
+        // Record the completed migration so retries are idempotent and
+        // failure recovery is deterministic.
+        let completed = CompletedClientMigration {
+            previous_client: pending.current_client.clone(),
+            current_client: new_client.clone(),
+            completed_at_ledger: env.ledger().sequence(),
+        };
+        env.storage().persistent().set(
+            &Self::completed_migration_key(contract_id),
+            &completed,
+        );
 
         // Clear the pending migration record
         remove_transient(&env, 'key);
@@ -290,7 +336,7 @@ impl Escrow {
         }
 
         // Remove the pending migration entry
-        remove_transient(&env, &key);
+        remove_transient(&env, 'key);
 
         // Emit cancellation event
         env.events().publish(
