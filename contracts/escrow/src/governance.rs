@@ -68,8 +68,11 @@ impl Escrow {
         admin.require_auth();
         crate::storage::consume_admin_nonce(&env, admin_nonce);
 
+        // Invariant: the protocol fee must never exceed 100% (10_000 bps).
+        // Validate before any state mutation so a rejected call cannot leave
+        // a partially-updated configuration behind.
         storage_validation::validate_protocol_fee_bps(&env, new_bps);
-        if new_bps > 10_000 {
+        if new_bps > MAX_FEE_BPS {
             env.panic_with_error(Error::InvalidProtocolParameters);
         }
 
@@ -115,6 +118,9 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
         admin.require_auth();
 
+        // Invariant: the configured milestone cap must stay within the
+        // compile-time safe bounds. Reject out-of-range values before writing
+        // so the stored configuration is never left in an invalid state.
         if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
             env.panic_with_error(Error::LimitOutOfRange);
         }
@@ -164,10 +170,15 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
         admin.require_auth();
 
+        // Invariant: a self-proposal is a no-op that would let the current
+        // admin bypass the reaction window, so reject it before touching
+        // PendingAdmin.
         if proposed == admin {
             env.panic_with_error(Error::CannotProposeSelf);
         }
 
+        // Overwriting any existing proposal atomically replaces the pending
+        // state, so a stale proposal can never be accepted after this point.
         env.storage().persistent().set(
             &DataKey::PendingAdmin,
             &PendingAdminProposal {
@@ -218,6 +229,9 @@ impl Escrow {
             .get(&DataKey::PendingAdmin)
             .unwrap_or_else(|| env.panic_with_error(Error::InvalidState));
 
+        // Invariant: acceptance is only valid inside the [min_delay, ttl]
+        // window. Both bounds are checked before authorization and before any
+        // state mutation, so a rejected accept cannot consume the proposal.
         let elapsed = env
             .ledger()
             .sequence()
@@ -229,6 +243,9 @@ impl Escrow {
             env.panic_with_error(Error::AdminProposalExpired);
         }
 
+        // Invariant: only the proposed address may accept, and it must
+        // authorize this call. The proposal is consumed atomically below so a
+        // replay finds nothing pending and fails with InvalidState.
         let pending_admin = pending.proposed;
         pending_admin.require_auth();
 
@@ -238,6 +255,9 @@ impl Escrow {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
+        // Invariant: the admin slot is overwritten and the pending proposal is
+        // cleared in the same transaction, so there is never a window where
+        // both the old and new admin are simultaneously authorized.
         env.storage()
             .persistent()
             .set(&DataKey::Admin, &pending_admin);
@@ -285,6 +305,9 @@ impl Escrow {
             .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
         admin.require_auth();
 
+        // Invariant: cancellation requires a live proposal and is authorized
+        // by the current admin only. Removing it here guarantees a subsequent
+        // accept_admin call fails with InvalidState (no replay).
         let pending: PendingAdminProposal = env
             .storage()
             .persistent()
