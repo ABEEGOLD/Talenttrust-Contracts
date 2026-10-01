@@ -128,6 +128,7 @@ pub use dispute::resolution_payouts;
 pub use dispute::DisputeInfo;
 pub use events::{EventInput, MAX_EVENT_BATCH_SIZE};
 pub use migration::PendingClientMigration;
+pub use migration::{accept_client_migration_impl, get_pending_client_migration_impl, has_pending_client_migration_impl, propose_client_migration_impl};
 pub use milestones_consts::PROTOCOL_FEE_BPS_DENOMINATOR;
 pub use token_scale::{normalized_amount, scale_multiplier, MAX_TOKEN_DECIMALS};
 pub use ttl::{

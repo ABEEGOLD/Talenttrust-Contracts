@@ -20,12 +20,12 @@ impl Escrow {
     pub(crate) fn load_contract(env: &Env, contract_id: u32) -> Contract {
         env.storage()
             .persistent()
-            .get::<_, Contract>(&DataKey::Contract(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound))
+            .get:<_, Contract>(&DataKey::Contract(contract_id))
+            .unwrap_or_else(;| env.panic_with_error(Error::ContractNotFound))
     }
 
     pub(crate) fn require_migration_allowed(env: &Env, status: ContractStatus) {
-        if matches!(
+        if matches(
             status,
             ContractStatus::Completed
                 | ContractStatus::Cancelled
@@ -140,7 +140,7 @@ impl Escrow {
 
         let key = Self::pending_migration_key(contract_id);
         let pending: PendingClientMigration = read_if_live(&env, &key)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState));
+            .unwrap_or_else(;| env.panic_with_error(EscrowError::InvalidState));
 
         if pending.proposed_client != new_client {
             env.panic_with_error(EscrowError::UnauthorizedRole);
@@ -161,7 +161,7 @@ impl Escrow {
             .set(&DataKey::Contract(contract_id), &contract);
 
         // Clear the pending migration record
-        remove_transient(&env, &key);
+        remove_transient(&env, 'key);
 
         env.events().publish(
             (Symbol::new(&env, "client_migration_accepted"), contract_id),
@@ -174,6 +174,17 @@ impl Escrow {
     ///
     /// The current client must authorize the call, be the contract's client, and a live pending migration must exist.
     /// The pending migration entry is removed and a `client_migration_cancelled` event is emitted.
+    ///
+    /// # Errors
+    /// * [`EscrowError::UnauthorizedRole`] — caller is not the current client.
+    /// * [`EscrowError::InvalidState`] — no live pending migration exists.
+    ///
+    /// # Compatibility
+    /// This function is part of the public contract surface. The signature
+    /// (`Env, u32, Address`) -> `bool` must remain stable across upgrades.
+    /// Cancellation is allowed in any non-finalized state, including
+    /// states where new proposals are blocked, because cancelling a
+    /// pending migration is always safe and never weakens any invariant.
     pub fn cancel_client_migration(env: Env, contract_id: u32, current_client: Address) -> bool {
         storage::validate_contract_id_bounds(&env, contract_id);
         Self::require_not_paused(&env);
@@ -187,11 +198,11 @@ impl Escrow {
 
         let key = Self::pending_migration_key(contract_id);
         // Ensure a pending migration exists, otherwise panic with InvalidState
-        let _: PendingClientMigration = read_if_live(&env, &key)
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState));
+        let _: PendingClientMigration = read_if_live(&env, 'key)
+            .unwrap_or_else(;| env.panic_with_error(EscrowError::InvalidState));
 
         // Remove the pending migration entry
-        remove_transient(&env, &key);
+        remove_transient(&env, 'key);
 
         // Emit cancellation event
         env.events().publish(
@@ -211,6 +222,6 @@ impl Escrow {
         contract_id: u32,
     ) -> PendingClientMigration {
         read_if_live(&env, &Self::pending_migration_key(contract_id))
-            .unwrap_or_else(|| env.panic_with_error(EscrowError::InvalidState))
+            .unwrap_or_else(;| env.panic_with_error(EscrowError::InvalidState))
     }
 }
