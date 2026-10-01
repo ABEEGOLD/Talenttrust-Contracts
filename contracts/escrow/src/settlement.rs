@@ -37,14 +37,52 @@
 //! 6. **This module never emits events and never checks authorization.**  Those
 //!    responsibilities belong to the entrypoints in `lib.rs` and `finalize.rs`.
 //!
-//! # Round-trip guarantee
+//! # Persistence invariants
 //!
 //! Every `write_*` followed by the corresponding `read_*` returns the
 //! same value.  The `test_settlement_storage` module in `test/` verifies
 //! this invariant plus absent-key behaviour.
+//!
+//! # Concurrency and idempotency invariants
+//!
+//! Settlement state transitions must be safe under concurrent or repeated
+//! execution.  The helpers below enforce the following invariants:
+//!
+//! 1. **Write-once settlement token.** [`write_settlement_token`] is
+//!    guarded by [`require_settlement_token_unbound`], which panics with
+//!    [`Error::SettlementTokenAlreadyBound`] if a token is already bound.
+//!    This prevents a racing or retried bind from silently rebinding the
+//!    token to a different address.
+//! 2. **Write-once finalization.** [`write_finalization`] is guarded by
+//!    [`require_not_finalized`], which panics with
+//!    [`Error::AlreadyFinalized`] if a record already exists.  A racing or
+//!    retried finalize therefore cannot overwrite a prior record.
+//! 3. **Atomic check-and-write.** The guard and the write are performed in
+//!    the same contract invocation, so Soroban's transactional execution
+//!    model guarantees that either both happen or neither does.
 
 use crate::{finalize::FinalizationRecord, DataKey, Error};
 use soroban_sdk::{Address, Env};
+
+/// Result of a commit-once settlement write.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CommitOutcome {
+    /// No value existed, so this invocation persisted it.
+    Committed,
+    /// The same value was already persisted; no storage mutation was needed.
+    Recovered,
+}
+
+fn validate_contract_id(contract_id: u32) -> Result<(), Error> {
+    if contract_id == 0 {
+        return Err(Error::InvalidContractId);
+    }
+    Ok(())
+}
+
+fn panic_on_error<T>(env: &Env, result: Result<T, Error>) -> T {
+    result.unwrap_or_else(|error| env.panic_with_error(error))
+}
 
 // ── Settlement token ────────────────────────────────────────────────────────
 
@@ -92,6 +130,24 @@ pub fn read_settlement_token(env: &Env) -> Option<Address> {
     env.storage().persistent().get(&DataKey::SettlementToken)
 }
 
+/// Commit the settlement token address under the canonical storage key.
+///
+/// An identical retry is a no-op. A retry with a different address returns
+/// [`Error::SettlementTokenAlreadyBound`] without changing the original
+/// binding.
+pub(crate) fn commit_settlement_token(env: &Env, token: &Address) -> Result<CommitOutcome, Error> {
+    match read_settlement_token(env) {
+        None => {
+            env.storage()
+                .persistent()
+                .set(&DataKey::SettlementToken, token);
+            Ok(CommitOutcome::Committed)
+        }
+        Some(existing) if existing == *token => Ok(CommitOutcome::Recovered),
+        Some(_) => Err(Error::SettlementTokenAlreadyBound),
+    }
+}
+
 /// Persist the settlement token address under the canonical storage key.
 ///
 /// # ⚠ Precondition — write-once semantics
@@ -129,9 +185,31 @@ pub fn read_settlement_token(env: &Env) -> Option<Address> {
 /// });
 /// ```
 pub fn write_settlement_token(env: &Env, token: &Address) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::SettlementToken, token);
+    let _ = panic_on_error(env, commit_settlement_token(env, token));
+}
+
+/// Panic with [`Error::SettlementTokenAlreadyBound`] if a settlement token
+/// is already bound.
+///
+/// Callers must invoke this guard immediately before
+/// [`write_settlement_token`] to enforce write-once semantics under
+/// concurrent or repeated execution.  Because the guard and the write run
+/// in the same invocation, Soroban's transactional execution model makes
+/// the check-and-write atomic: a racing bind either observes the token as
+/// unbound and writes, or observes it as bound and panics — never both.
+///
+/// # Arguments
+///
+/// * `env` – The Soroban environment.
+///
+/// # Errors
+///
+/// Panics with [`Error::SettlementTokenAlreadyBound`] when
+/// [`is_settlement_token_bound`] returns `true`.
+pub fn require_settlement_token_unbound(env: &Env) {
+    if is_settlement_token_bound(env) {
+        env.panic_with_error(Error::SettlementTokenAlreadyBound);
+    }
 }
 
 /// Persist the settlement token address **exactly once**, panicking with
@@ -351,6 +429,7 @@ pub fn finalization_key(contract_id: u32) -> DataKey {
 /// });
 /// ```
 pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationRecord> {
+    panic_on_error(env, validate_contract_id(contract_id));
     env.storage()
         .persistent()
         .get(&finalization_key(contract_id))
@@ -413,6 +492,7 @@ pub fn read_finalization(env: &Env, contract_id: u32) -> Option<FinalizationReco
 /// });
 /// ```
 pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
+    panic_on_error(env, validate_contract_id(contract_id));
     env.storage()
         .persistent()
         .has(&finalization_key(contract_id))
@@ -476,9 +556,33 @@ pub fn is_finalized(env: &Env, contract_id: u32) -> bool {
 /// });
 /// ```
 pub fn write_finalization(env: &Env, contract_id: u32, record: &FinalizationRecord) {
-    env.storage()
-        .persistent()
-        .set(&finalization_key(contract_id), record);
+    let _ = panic_on_error(env, commit_finalization(env, contract_id, record));
+}
+
+/// Atomically write a finalization record, panicking with
+/// [`Error::AlreadyFinalized`] if one already exists.
+///
+/// This is the preferred entry point for finalization under concurrent or
+/// repeated execution: it combines the [`require_not_finalized`] guard and
+/// the [`write_finalization`] write into a single call so callers cannot
+/// accidentally skip the guard.  Because both operations run in the same
+/// invocation, Soroban's transactional execution model guarantees that a
+/// racing or retried finalize either writes exactly once or panics without
+/// mutating state.
+///
+/// # Arguments
+///
+/// * `env`         – The Soroban environment.
+/// * `contract_id` – The numeric contract identifier.
+/// * `record`      – The [`FinalizationRecord`] to persist.
+///
+/// # Errors
+///
+/// Panics with [`Error::AlreadyFinalized`] when a record already exists for
+/// `contract_id`.
+pub fn write_finalization_once(env: &Env, contract_id: u32, record: &FinalizationRecord) {
+    require_not_finalized(env, contract_id);
+    write_finalization(env, contract_id, record);
 }
 
 /// Panic with [`Error::AlreadyFinalized`] if a record already exists for
@@ -564,8 +668,22 @@ pub fn require_not_finalized(env: &Env, contract_id: u32) {
 mod tests {
     use super::*;
     use crate::finalize::FinalizationRecord;
-    use crate::{ContractStatus, ContractSummary, Escrow, CONTRACT_SUMMARY_SCHEMA_VERSION};
-    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use crate::{
+        ContractStatus, ContractSummary, Escrow, EscrowClient, CONTRACT_SUMMARY_SCHEMA_VERSION,
+    };
+    use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+
+    /// Passes the first external token probe but fails the later `decimals`
+    /// dependency call used during binding.
+    #[contract]
+    struct BalanceOnlyToken;
+
+    #[contractimpl]
+    impl BalanceOnlyToken {
+        pub fn balance(_env: Env, _id: Address) -> i128 {
+            0
+        }
+    }
 
     fn setup_contract(env: &Env) -> Address {
         env.register(Escrow, ())
@@ -732,6 +850,127 @@ mod tests {
     }
 
     // ── require_not_finalized guard ────────────────────────────────────────
+
+    #[test]
+    fn finalization_identical_retry_is_idempotent() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 100,
+            summary: dummy_summary(&env),
+        };
+
+        env.as_contract(&contract, || {
+            assert_eq!(
+                commit_finalization(&env, 1, &record),
+                Ok(CommitOutcome::Committed)
+            );
+            assert_eq!(
+                commit_finalization(&env, 1, &record),
+                Ok(CommitOutcome::Recovered)
+            );
+            assert_eq!(read_finalization(&env, 1), Some(record));
+        });
+    }
+
+    #[test]
+    fn finalization_conflicting_retry_preserves_original() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let original = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 100,
+            summary: dummy_summary(&env),
+        };
+        let conflicting = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 200,
+            summary: dummy_summary(&env),
+        };
+
+        env.as_contract(&contract, || {
+            assert_eq!(
+                commit_finalization(&env, 1, &original),
+                Ok(CommitOutcome::Committed)
+            );
+            assert_eq!(
+                commit_finalization(&env, 1, &conflicting),
+                Err(Error::AlreadyFinalized)
+            );
+            assert_eq!(read_finalization(&env, 1), Some(original));
+        });
+    }
+
+    #[test]
+    fn finalization_zero_id_is_rejected_without_storage() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: 100,
+            summary: dummy_summary(&env),
+        };
+
+        env.as_contract(&contract, || {
+            assert_eq!(
+                commit_finalization(&env, 0, &record),
+                Err(Error::InvalidContractId)
+            );
+            assert!(!env.storage().persistent().has(&DataKey::Finalization(0)));
+        });
+    }
+
+    #[test]
+    fn finalization_max_id_round_trip() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        let record = FinalizationRecord {
+            finalizer: Address::generate(&env),
+            timestamp: u64::MAX,
+            summary: dummy_summary(&env),
+        };
+
+        env.as_contract(&contract, || {
+            assert_eq!(
+                commit_finalization(&env, u32::MAX, &record),
+                Ok(CommitOutcome::Committed)
+            );
+            assert_eq!(read_finalization(&env, u32::MAX), Some(record));
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Contract, #4)")]
+    fn finalization_zero_id_read_panics_with_typed_error() {
+        let env = Env::default();
+        let contract = setup_contract(&env);
+        env.as_contract(&contract, || {
+            let _ = read_finalization(&env, 0);
+        });
+    }
+
+    #[test]
+    fn public_finalization_boundaries_return_typed_errors() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let contract = setup_contract(&env);
+        let client = EscrowClient::new(&env, &contract);
+        let finalizer = Address::generate(&env);
+
+        assert_contract_error(
+            client.try_finalize_contract(&0, &finalizer),
+            Error::InvalidContractId,
+        );
+        assert_contract_error(
+            client.try_get_finalization_record(&0),
+            Error::InvalidContractId,
+        );
+        assert_contract_error(
+            client.try_finalize_contract(&u32::MAX, &finalizer),
+            Error::ContractNotFound,
+        );
+    }
 
     #[test]
     fn require_not_finalized_passes_when_absent() {
