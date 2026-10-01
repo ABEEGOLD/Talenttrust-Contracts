@@ -299,6 +299,18 @@ pub fn check_version_for_concurrency(
     }
 }
 
+/// Check an expected milestone version and fail with a dedicated stale-version
+/// error suitable for contract entrypoints.
+pub fn require_expected_version(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    expected_version: u32,
+) {
+    check_version_for_concurrency(env, contract_id, milestone_index, expected_version)
+        .unwrap_or_else(|_| env.panic_with_error(Error::StaleMilestoneVersion));
+}
+
 // ── Re-exports for convenient use ─────────────────────────────────────────────────
 
 // ── Tests ────────────────────────────────────────────────────────────────────
