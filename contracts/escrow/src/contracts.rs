@@ -33,8 +33,8 @@
 use soroban_sdk::{contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
 use crate::{
-    ttl, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowArgs,
-    EscrowClient, EscrowError, MilestoneSummary, ReleaseAuthorization,
+    keys, ttl, Contract, ContractStatus, ContractSummary, DataKey, Error, Escrow, EscrowArgs,
+    EscrowClient, EscrowError, Milestone, MilestoneSummary, ReleaseAuthorization,
     CONTRACT_SUMMARY_SCHEMA_VERSION,
 };
 
@@ -252,6 +252,49 @@ impl Escrow {
             || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
         {
             env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        let next_contract_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextContractId)
+            .unwrap_or(1);
+
+        for contract_id in 1..next_contract_id {
+            let contract_key = DataKey::Contract(contract_id);
+            if env.storage().persistent().has(&contract_key) {
+                let contract: Contract = env
+                    .storage()
+                    .persistent()
+                    .get(&contract_key)
+                    .unwrap();
+
+                if contract.status == ContractStatus::Cancelled
+                    || contract.status == ContractStatus::Refunded
+                {
+                    continue;
+                }
+
+                let milestone_key = keys::milestone_key(&env, contract_id);
+                if let Some(milestones) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, Vec<Milestone>>(&milestone_key)
+                {
+                    if milestones.len() > max_milestones {
+                        env.panic_with_error(EscrowError::LimitOutOfRange);
+                    }
+
+                    let total_amount: i128 = milestones
+                        .iter()
+                        .map(|m| m.amount)
+                        .fold(0i128, |acc, amt| acc.saturating_add(amt));
+
+                    if total_amount > max_escrow_stroops {
+                        env.panic_with_error(EscrowError::LimitOutOfRange);
+                    }
+                }
+            }
         }
 
         let params = crate::types::ContractsParameters {
