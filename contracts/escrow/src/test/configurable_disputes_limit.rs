@@ -2,7 +2,7 @@ use super::register_client;
 use crate::{
     Escrow, EscrowClient, EscrowError, MAX_MAX_DISPUTES, DEFAULT_MAX_DISPUTES, MIN_MAX_DISPUTES,
 };
-use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 // ─── Setup ───────────────────────────────────────────
 

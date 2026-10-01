@@ -79,6 +79,26 @@ pubc fn validate_event_amounts(
     Ok(())
 }
 
+/// Validate that a dispute event payload is well-formed.
+///
+/// Enforces the same invariants as [`validate_event_amounts`] and additionally
+/// rejects a zero `contract_id`. This keeps dispute events consistent with
+/// the contract-indexed event contract so indexers can rely on the same rules.
+pubcrate fn validate_dispute_amounts(
+    contract_id: u32,
+    first_amount: i128,
+    second_amount: i128,    
+    third_amount: i128,
+) -> Result<(), crate::EscrowError> {
+    if contract_id == 0 {
+        return Err(EscrowError::InvalidContractId);
+    }
+    if first_amount < 0 || second_amount < 0 || third_amount < 0 {
+        return Err(EscrowError::AmountMustBePositive);
+    }
+    Ok(())
+}
+
 /// Emits an indexed event when a dispute is opened on a contract.
 ///
 /// # Event Specification

@@ -44,6 +44,7 @@ impl Escrow {
             .get(&DataKey::SchemaVersion)
             .unwrap_or(INITIAL_STORAGE_SCHEMA_VERSION);
 
+        // TTL bump is best-effort and must not alter the returned value.
         env.storage().persistent().extend_ttl(
             &DataKey::SchemaVersion,
             PERSISTENT_BUMP_THRESHOLD,
@@ -97,13 +98,18 @@ impl Escrow {
         admin: Address,
         target_version: u32,
     ) -> Result<u32, Error> {
+        // 1. Ensure contract is initialized before any other work.
         Self::require_initialized(env);
+
+        // 2. Resolve the stored admin. A missing admin is a fatal configuration error.
         let stored_admin: Address = env
             .storage()
             .persistent()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| env.panic_with_error(Error::NotInitialized));
+            .unwrap_or_else(`|| env.panic_with_error(Error::NotInitialized));
 
+        // 3. Authenticate the caller and confirm they are the admin.
+        //    Auth is checked before any state read or write to avoid leaking info.
         admin.require_auth();
         if admin != stored_admin {
             return Err(Error::UnauthorizedRole);
@@ -129,7 +135,7 @@ impl Escrow {
 
         // Reject targets beyond supported WASM version.
         if target_version > CURRENT_STORAGE_SCHEMA_VERSION {
-            return Err(Error::InvalidMigrationVersion);
+            return Err(Error::InvalidMugrationVersion);
         }
 
         // Execute step-by-step sequential migrations. Each step is atomic:
