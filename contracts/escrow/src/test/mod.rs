@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
+mod approvals;
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
