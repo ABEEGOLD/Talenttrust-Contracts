@@ -115,15 +115,33 @@ pub use amount_validation::validate_milestone_amounts;
 pub use amount_validation::validate_single_amount;
 pub use amount_validation::AmountBoundary;
 pub use amount_validation::MAX_SINGLE_AMOUNT_STROOPS;
-pub use constants::{
-    MAX_COMMENT_BYTES, MAX_RATING, MIN_RATING, PAGE_CEILING, REPUTATION_CREDIT_INCREMENT, SCALE,
-};
-pub use contracts::{
-    MainnetReadinessInfo, DEFAULT_MAX_ARBITERS, DEFAULT_MAX_MILESTONES,
-    DEFAULT_MAX_TOTAL_ESCROW_STROOPS, MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS,
-    MAINNET_PROTOCOL_VERSION, MAX_MAX_ARBITERS, MAX_MAX_BATCH_SETTLEMENT, MAX_MAX_MILESTONES,
-    MIN_MAX_ARBITERS, MIN_MAX_BATCH_SETTLEMENT, MIN_MAX_ESCROW_STROOPS, MIN_MAX_MILESTONES,
-};
+pub use constants::PAGE_CEILING;
+// Constants previously re-exported from the contracts module (now a validation-only module).
+// Defined inline here for public API compatibility.
+pub const DEFAULT_MAX_MILESTONES: u32 = 10;
+pub const DEFAULT_MAX_TOTAL_ESCROW_STROOPS: i128 = 10_000_000_000_000;
+pub const MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS: i128 = 1_000_000_000_000_000i128;
+pub const MAINNET_PROTOCOL_VERSION: u32 = 1u32;
+pub const DEFAULT_MAX_ARBITERS: u32 = 1;
+pub const MIN_MAX_ARBITERS: u32 = 1;
+pub const MAX_MAX_ARBITERS: u32 = 10;
+pub const MAX_MAX_MILESTONES: u32 = 100;
+pub const MIN_MAX_MILESTONES: u32 = 1;
+pub const MIN_MAX_ESCROW_STROOPS: i128 = 1_000_000;
+pub const MIN_MAX_BATCH_SETTLEMENT: u32 = 1;
+pub const MAX_MAX_BATCH_SETTLEMENT: u32 = 100;
+
+/// Deployment readiness snapshot returned by `get_mainnet_readiness_info`.
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MainnetReadinessInfo {
+    pub initialized: bool,
+    pub governed_params_set: bool,
+    pub emergency_controls_enabled: bool,
+    pub caps_set: bool,
+    pub protocol_version: u32,
+    pub max_escrow_total_stroops: i128,
+}
 pub use dispute::final_status_after_resolution;
 pub use dispute::resolution_payouts;
 pub use dispute::DisputeInfo;
@@ -2432,7 +2450,11 @@ impl Escrow {
     // â”€â”€ Cancel contract â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     pub fn get_mainnet_readiness_info(env: Env) -> MainnetReadinessInfo {
-        let checklist = Self::load_checklist(&env);
+        let checklist: ReadinessChecklist = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ReadinessChecklist)
+            .unwrap_or_default();
         MainnetReadinessInfo {
             initialized: checklist.initialized,
             governed_params_set: checklist.governed_params_set,
@@ -2474,7 +2496,58 @@ impl Escrow {
 
     /// Returns the current max escrow stroops limit (or the default if not set).
     pub fn get_max_escrow_stroops(env: Env) -> i128 {
-        Self::effective_max_escrow_stroops(&env)
+        env.storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::MaxEscrowStroops)
+            .unwrap_or(DEFAULT_MAX_TOTAL_ESCROW_STROOPS)
+    }
+
+    /// Set both the max milestones and max escrow stroops limits atomically.
+    /// Admin only. Rejects out-of-range values.
+    pub fn set_contracts_parameters(
+        env: Env,
+        max_milestones: u32,
+        max_escrow_stroops: i128,
+    ) -> bool {
+        Self::require_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        admin.require_auth();
+
+        if max_milestones < MIN_MAX_MILESTONES || max_milestones > MAX_MAX_MILESTONES {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+        if max_escrow_stroops < MIN_MAX_ESCROW_STROOPS
+            || max_escrow_stroops > MAINNET_MAX_TOTAL_ESCROW_PER_CONTRACT_STROOPS
+        {
+            env.panic_with_error(EscrowError::LimitOutOfRange);
+        }
+
+        let params = crate::types::ContractsParameters {
+            max_milestones,
+            max_escrow_stroops,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::ContractsParameters, &params);
+
+        env.events().publish(
+            (symbol_short!("contracts"), Symbol::new(&env, "params")),
+            (params, env.ledger().timestamp()),
+        );
+        true
+    }
+
+    /// Returns the currently configured contracts parameters (or the defaults if not set).
+    pub fn get_contracts_parameters(env: Env) -> crate::types::ContractsParameters {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContractsParameters)
+            .unwrap_or_default()
     }
 
     pub fn set_max_arbiters(env: Env, max_arbiters: u32) -> bool {

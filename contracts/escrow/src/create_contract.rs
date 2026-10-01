@@ -102,7 +102,11 @@ impl Escrow {
         // `set_max_milestones` clamps administrative updates to
         // `[MIN_MAX_MILESTONES, MAX_MAX_MILESTONES]`, so this check is
         // bounded and safe regardless of caller intent.
-        let max_milestones = Self::effective_max_milestones(&env);
+        let max_milestones = env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::MaxMilestones)
+            .unwrap_or(crate::MAX_MILESTONES);
         if milestones.len() > max_milestones {
             env.panic_with_error(EscrowError::TooManyMilestones);
         }
@@ -123,7 +127,11 @@ impl Escrow {
                 .get::<_, GovernedParameters>(&DataKey::GovernedParameters)
                 .map(|params| params.max_escrow_total_stroops)
                 .unwrap_or(i128::MAX);
-            let configurable = Self::effective_max_escrow_stroops(&env);
+            let configurable = env
+                .storage()
+                .persistent()
+                .get::<_, i128>(&DataKey::MaxEscrowStroops)
+                .unwrap_or(crate::DEFAULT_MAX_TOTAL_ESCROW_STROOPS);
             governed.min(configurable)
         };
 
