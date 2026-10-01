@@ -177,13 +177,10 @@ fn assert_token_conservation_multi(
     let expected_on_chain = total_available + accrued_fees;
     let actual_on_chain = TokenClient::new(&env, token).balance(&escrow.address);
     assert_eq!(
-        actual_on_chain,
-        expected_on_chain,
+        actual_on_chain, expected_on_chain,
         "multi-contract token conservation violated: \
          on-chain balance={} ≠ total_available={}+fees={}",
-        actual_on_chain,
-        total_available,
-        accrued_fees,
+        actual_on_chain, total_available, accrued_fees,
     );
 }
 
@@ -233,7 +230,10 @@ fn deposit_then_full_release_reconciles() {
     assert_eq!(c.released_amount, total);
     assert_eq!(c.refunded_amount, 0);
     // Freelancer has received all funds (no protocol fee configured).
-    assert_eq!(TokenClient::new(&env, &token).balance(&freelancer_addr), total);
+    assert_eq!(
+        TokenClient::new(&env, &token).balance(&freelancer_addr),
+        total
+    );
     // Contract holds nothing.
     assert_eq!(TokenClient::new(&env, &token).balance(&escrow.address), 0);
 }
@@ -340,7 +340,10 @@ fn partial_releases_then_refund_remainder_reconciles() {
     assert_eq!(c.total_deposited, 600);
     // Contract holds nothing (100 went to freelancer, 500 to client).
     assert_eq!(TokenClient::new(&env, &token).balance(&escrow.address), 0);
-    assert_eq!(TokenClient::new(&env, &token).balance(&freelancer_addr), 100);
+    assert_eq!(
+        TokenClient::new(&env, &token).balance(&freelancer_addr),
+        100
+    );
     assert_eq!(TokenClient::new(&env, &token).balance(&client_addr), 500);
 }
 
@@ -1177,7 +1180,10 @@ fn get_contract_round_trips_accounting_fields_after_lifecycle() {
     escrow.release_milestone(&cid, &client_addr, &1);
 
     let c = escrow.get_contract(&cid);
-    assert_eq!(c.client, client_addr, "client field must survive round-trip");
+    assert_eq!(
+        c.client, client_addr,
+        "client field must survive round-trip"
+    );
     assert_eq!(
         c.freelancer, freelancer_addr,
         "freelancer field must survive round-trip"
@@ -1280,8 +1286,8 @@ fn full_lifecycle_deposit_partial_release_partial_refund_then_finalize() {
 
     let c = escrow.get_contract(&cid);
     assert_eq!(c.status, ContractStatus::Completed);
-    assert_eq!(c.released_amount, 300);  // 100 + 200
-    assert_eq!(c.refunded_amount, 200);  // 150 + 50
+    assert_eq!(c.released_amount, 300); // 100 + 200
+    assert_eq!(c.refunded_amount, 200); // 150 + 50
     assert_eq!(c.total_deposited, total);
 
     // Finalize the completed contract.
