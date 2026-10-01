@@ -5,9 +5,9 @@ use soroban_sdk:{symbol_short, Address, Env};
 #[soroban_sdk::contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInput {
-    pub topic: soroban_sdk::Symbol,
+    pub topic: soroban_sdk:Symbol,
     pub contract_id: u32,
-    pub data: soroban_sdk::Symbol,
+    pub data: soroban_sdk:Symbol,
 }
 
 /// Maximum number of events processed in a batch operations.
@@ -17,12 +17,7 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("contract"), contract_id: u32)`$
-/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`$
-///
-/// # Failure semantics
-/// This function is the backwards-compatible panicking wrapper. New callers
-/// that need recoverable failure behavior should use `try_emit_contract_indexed_event`.
+/// - `(contract_id, status, funded_amount, released_amount, refunded_amount, total_deposited)`
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
@@ -110,11 +105,7 @@ pubcrate fn validate_dispute_amounts(
 ///
 /// # Event Specification
 /// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
-/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`$
-///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMusbePositive` if any amount field is negative.
+/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`"
 pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
@@ -159,7 +150,7 @@ pub fn try_emit_dispute_opened_event(
 /// Emits an indexed event when a dispute is resolved.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`
+/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`"
 /// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
 ///
 /// # Panics
@@ -369,7 +360,7 @@ pub fn emit_work_evidence_submitted_event(
     contract_id: u32,
     milestone_index: u32,
     submitter: &Address,
-    evidence: &soroban_sdk::String,
+    evidence: &soroban_sdk:Symbol,
 ) {
     try_emit_work_evidence_submitted_event(env, contract_id, milestone_index, submitter, evidence)
         .unwrap_or_else(|e| env.panic_with_error(e));

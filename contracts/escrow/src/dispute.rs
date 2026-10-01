@@ -1,4 +1,4 @@
-//! Dispute payout arithmetic and final-status helpers.
+//! Dispute payout arithmetic, final-status helpers, and deterministic recovery.
 //!
 //! This module is intentionally storage-free. It computes how the currently
 //! available escrow balance should be split for a `DisputeResolution` and tells

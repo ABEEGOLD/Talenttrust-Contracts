@@ -1,4 +1,5 @@
 //! Centralized storage precondition checks and contract loading helpers.
+//! Centralized storage precondition checks and contract loading helpers.
 //!
 //! This module extracts repeated storage validation patterns into a single source
 //! of truth, ensuring consistent error handling and reducing code duplication across
