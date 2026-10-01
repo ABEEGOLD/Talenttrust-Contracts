@@ -75,7 +75,7 @@ impl Escrow {
 
         let milestone_key = keys::milestone_key(&env, contract_id);
         let mut milestones: Vec<Milestone> =
-            env.storage().persistent().get(&milestone_key).unwrap();
+            env.storage().persistent().get(&milestone_key).unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
         ttl::extend_milestone_ttl(&env, contract_id);
 
@@ -83,7 +83,7 @@ impl Escrow {
             env.panic_with_error(Error::IndexOutOfBounds);
         }
 
-        let mut milestone = milestones.get(milestone_index).unwrap().clone();
+        let mut milestone = milestones.get(milestone_index).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds)).clone();
 
         let milestone_released_key = DataKey::MilestoneReleased(contract_id, milestone_index);
         let is_already_released: bool = env
@@ -264,15 +264,15 @@ impl Escrow {
 
         let milestone_key = keys::milestone_key(&env, contract_id);
         let mut milestones: Vec<Milestone> =
-            env.storage().persistent().get(&milestone_key).unwrap();
+            env.storage().persistent().get(&milestone_key).unwrap_or_else(|| env.panic_with_error(Error::ContractNotFound));
 
         ttl::extend_milestone_ttl(&env, contract_id);
 
         let batch_len = milestone_indices.len();
         for i in 0..batch_len {
-            let idx_i = milestone_indices.get(i).unwrap();
+            let idx_i = milestone_indices.get(i).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
             for j in (i + 1)..batch_len {
-                let idx_j = milestone_indices.get(j).unwrap();
+                let idx_j = milestone_indices.get(j).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
                 if idx_i == idx_j {
                     env.panic_with_error(Error::DuplicateMilestoneInBatch);
                 }
@@ -281,12 +281,12 @@ impl Escrow {
 
         let mut total_gross_amount: i128 = 0;
         for i in 0..batch_len {
-            let milestone_index = milestone_indices.get(i).unwrap();
+            let milestone_index = milestone_indices.get(i).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
             if milestone_index >= milestones.len() {
                 env.panic_with_error(Error::IndexOutOfBounds);
             }
 
-            let milestone = milestones.get(milestone_index).unwrap();
+            let milestone = milestones.get(milestone_index).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
             let milestone_released_key = DataKey::MilestoneReleased(contract_id, milestone_index);
             let is_already_released: bool = env
                 .storage()
@@ -337,8 +337,8 @@ impl Escrow {
         let mut total_protocol_fees: i128 = 0;
         if fee_bps > 0 {
             for i in 0..batch_len {
-                let milestone_index = milestone_indices.get(i).unwrap();
-                let milestone = milestones.get(milestone_index).unwrap();
+                let milestone_index = milestone_indices.get(i).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
+                let milestone = milestones.get(milestone_index).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
                 let fee = Self::calculate_protocol_fee(&env, milestone.amount, fee_bps);
                 total_protocol_fees = total_protocol_fees
                     .checked_add(fee)
@@ -349,8 +349,8 @@ impl Escrow {
         // Pass 2: Atomic State Updates (Checks-Effects-Interactions)
         // All state changes happen before any token transfers
         for i in 0..batch_len {
-            let milestone_index = milestone_indices.get(i).unwrap();
-            let mut milestone = milestones.get(milestone_index).unwrap().clone();
+            let milestone_index = milestone_indices.get(i).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds));
+            let mut milestone = milestones.get(milestone_index).unwrap_or_else(|| env.panic_with_error(Error::IndexOutOfBounds)).clone();
 
             let milestone_released_key = DataKey::MilestoneReleased(contract_id, milestone_index);
             env.storage()
