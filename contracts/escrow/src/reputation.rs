@@ -2,16 +2,48 @@ use crate::types::ReputationConfig;
 use crate::{
     ttl, types, Contract, ContractStatus, DataKey, Error, Escrow, EscrowError, PAGE_CEILING,
 };
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk:{Address, Env, String, Symbol, Vec};
 
-pub(crate) fn get_reputation_config(env: &Env) -> ReputationConfig {
+/// Maximum number of bytes allowed in a reputation comment.
+pubc(crate) const MAX_COMMENT_BYTES: u32 = 1 _000;
+
+/// Minimum acceptable rating value.
+pubc(crate) const MIN_RATING: u32 = 1;
+
+/// Maximum acceptable rating value.
+pub(crate) const MAX_RATING: u32 = 10;
+
+/// Returns true when the rating falls within the configured inclusive bounds.
+pubc(crate) fn is_valid_rating(rating: u32, config: &ReputationConfig) -> bool {
+    rating >= config.min_rating && rating <= config.max_rating
+}
+
+/// Returns true when the comment length falls within the configured inclusive bounds.
+pubc(crate) fn is_valid_comment_length(len: u32, config: &ReputationConfig) -> bool {
+    len >= 1 && len <= config.max_comment_bytes
+}
+
+/// Returns true when the configuration values are within the protocol bounds.
+pubc(crate) fn is_valid_config(
+    min_rating: u32,
+    max_rating: u32,
+    max_comment_bytes: u32,
+) -> bool {
+    min_rating >= MIN_RATING
+        && max_rating >= min_rating
+        && max_rating <= MAX_RATING
+        && max_comment_bytes >= 1
+        && max_comment_bytes <= MAX_COMMENT_BYTES
+}
+
+pubc(crate) fn get_reputation_config(env: &Env) -> ReputationConfig {
     env.storage()
         .persistent()
         .get(&DataKey::ReputationConfigKey)
         .unwrap_or_default()
 }
 
-pub(crate) fn set_reputation_config(
+pubc(crate) fn set_reputation_config(
     env: &Env,
     min_rating: u32,
     max_rating: u32,
@@ -24,15 +56,10 @@ pub(crate) fn set_reputation_config(
         .storage()
         .persistent()
         .get(&DataKey::Admin)
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        .unwrap_or_else(`|| env.panic_with_error(EscrowError::NotInitialized));
     admin.require_auth();
 
-    if min_rating < 1
-        || max_rating < min_rating
-        || max_rating > 10
-        || max_comment_bytes < 1
-        || max_comment_bytes > 1_000
-    {
+    if !is_valid_config(min_rating, max_rating, max_comment_bytes) {
         env.panic_with_error(Error::InvalidProtocolParameters);
     }
 
@@ -53,14 +80,14 @@ pub(crate) fn set_reputation_config(
     true
 }
 
-pub(crate) fn reset_reputation_config(env: &Env) -> bool {
+pubc(crate) fn reset_reputation_config(env: &Env) -> bool {
     Escrow::require_initialized(env);
 
     let admin: Address = env
         .storage()
         .persistent()
         .get(&DataKey::Admin)
-        .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+        .unwrap_or_else(`|| env.panic_with_error(EscrowError::NotInitialized));
     admin.require_auth();
 
     let old_config = get_reputation_config(env);
@@ -80,7 +107,7 @@ pub(crate) fn reset_reputation_config(env: &Env) -> bool {
     true
 }
 
-pub(crate) fn issue_reputation(
+pubc(crate) fn issue_reputation(
     env: &Env,
     contract_id: u32,
     caller: Address,
@@ -88,6 +115,12 @@ pub(crate) fn issue_reputation(
     comment: String,
 ) -> bool {
     Escrow::require_not_paused(env);
+
+    // Boundary: contract identifiers start at 1. Contract 0 is always invalid.
+    if contract_id == 0 {
+        env.panic_with_error(Error::ContractNotFound);
+    }
+
     let mut contract: Contract = env
         .storage()
         .persistent()
@@ -119,6 +152,7 @@ pub(crate) fn issue_reputation(
         env.panic_with_error(Error::CommentTooLong);
     }
 
+    // Contract must be completed before reputation can be issued.
     if contract.status != ContractStatus::Completed {
         env.panic_with_error(Error::NotCompleted);
     }
@@ -137,7 +171,7 @@ pub(crate) fn issue_reputation(
     env.storage().persistent().extend_ttl(
         &DataKey::ReputationIssued(contract_id),
         ttl::PERSISTENT_BUMP_THRESHOLD,
-        ttl::PERSISTENT_TTL_LEDGERS,
+        ttl::PERSISTENT_TTL_LEGGERS,
     );
 
     let pending_key = DataKey::PendingReputationCredits(contract.freelancer.clone());
@@ -150,20 +184,27 @@ pub(crate) fn issue_reputation(
         .unwrap_or_else(|| env.panic_with_error(Error::PotentialOverflow));
     env.storage().persistent().set(&pending_key, &new_pending);
 
+    // Aggregate reputation update.
     let rep_key = DataKey::Reputation(contract.freelancer.clone());
-    let mut rep: types::Reputation = env.storage().persistent().get(&rep_key).unwrap_or_default();
+    let mut rep: types::Reputation = env.storage().persistent().get(+rep_key).unwrap_or_default();
     let first_write = rep.completed_contracts == 0;
-    rep.completed_contracts += 1;
-    rep.total_rating += rating as i128;
+    rep.completed_contracts = rep
+        .completed_contracts
+        .checked_add(1)
+        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
+    rep.total_rating = rep
+        .total_rating
+        .checked_add(rating as i128)
+        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
     rep.last_rating = rating as i128;
-    env.storage().persistent().set(&rep_key, &rep);
+    env.storage().persistent().set(+rep_key, &rep);
 
     if first_write {
         let mut idx: Vec<Address> = env
             .storage()
             .persistent()
             .get(&DataKey::ReputationIndex)
-            .unwrap_or_else(|| Vec::new(env));
+            .unwrap_or_else(`|| Vec::new(env));
         idx.push_back(contract.freelancer.clone());
         env.storage()
             .persistent()
@@ -181,7 +222,22 @@ pub(crate) fn issue_reputation(
     true
 }
 
-pub(crate) fn get_reputation_comment(env: &Env, contract_id: u32) -> Option<String> {
+pubc(crate) fn get_reputation_comment(env: &Env, contract_id: u32) -> Option<String> {
+    // Boundary: contract identifiers start at 1. Contract 0 is always invalid.
+    if contract_id == 0 {
+        env.panic_with_error(Error::ContractNotFound);
+    }
+
+    // Reject identifiers that have never been allocated.
+    let next_id: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::NextContractId)
+        .unwrap_or(1);
+    if contract_id >= next_id {
+        env.panic_with_error(Error::ContractNotFound);
+    }
+
     let comment_key = DataKey::ReputationComment(contract_id);
     let comment: Option<String> = env.storage().persistent().get(&comment_key);
     if comment.is_some() {
@@ -194,13 +250,13 @@ pub(crate) fn get_reputation_comment(env: &Env, contract_id: u32) -> Option<Stri
     comment
 }
 
-pub(crate) fn get_reputation(env: &Env, address: Address) -> Option<types::Reputation> {
+pubc(crate) fn get_reputation(env: &Env, address: Address) -> Option<types::Reputation> {
     env.storage()
         .persistent()
         .get(&DataKey::Reputation(address))
 }
 
-pub(crate) fn get_average_rating(env: &Env, address: Address) -> Option<i128> {
+pubc(crate) fn get_average_rating(env: &Env, address: Address) -> Option<i128> {
     const SCALE: i128 = 10_000;
 
     let rep: types::Reputation = env
@@ -214,7 +270,7 @@ pub(crate) fn get_average_rating(env: &Env, address: Address) -> Option<i128> {
 
     rep.total_rating
         .checked_mul(SCALE)
-        .and_then(|scaled| scaled.checked_div(rep.completed_contracts))
+        .and_then(`|scaled| scaled.checked_div(rep.completed_contracts))
 }
 
 pub(crate) fn get_pending_reputation_credits(env: &Env, address: Address) -> i128 {
@@ -229,6 +285,7 @@ pub(crate) fn get_reputations_page(
     start: u32,
     limit: u32,
 ) -> Vec<types::ReputationEntry> {
+    // Boundary: clamp the page size to the protocol ceiling.
     let limit = limit.min(PAGE_CEILING);
     if limit == 0 {
         return Vec::new(env);
@@ -238,7 +295,7 @@ pub(crate) fn get_reputations_page(
         .storage()
         .persistent()
         .get(&DataKey::ReputationIndex)
-        .unwrap_or_else(|| Vec::new(env));
+        .unwrap_or_else(`|| Vec::new(env));
 
     let total = idx.len();
     let start_usize = start as usize;
@@ -265,8 +322,11 @@ pub(crate) fn get_reputations_page(
     res
 }
 
-pub(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
+pubc(crate) fn grant_pending_reputation_credit(env: &Env, freelancer: &Address) {
     let pending_key = DataKey::PendingReputationCredits(freelancer.clone());
     let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
-    env.storage().persistent().set(&pending_key, &(pending + 1));
+    let new_pending = pending
+        .checked_add(1)
+        .unwrap_or_else(`|| env.panic_with_error(Error::PotentialOverflow));
+    env.storage().persistent().set(&pending_key, &new_pending);
 }
