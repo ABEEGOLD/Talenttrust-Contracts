@@ -1,25 +1,25 @@
 //! Property-based tests for the reputation system invariants.
-//!
-//! Randomized input testing for `issue_reputation` covering:
-//! - Rating bounds: valid (1-5) vs invalid (0, 6+) accepted/rejected
-//! - Comment length bounds: valid (1-200) vs invalid (0, 201+) accepted/rejected
-//! - Access control: only client, not freelancer or random
-//! - Status gate: non-completed contracts rejected
-//! - Idempotency: double-issuance rejected
-//!
-//! NOTE: Tests requiring a Completed contract (idempotency, state update) are
-//! gated behind a `#[ignore]` due to a pre-existing auth regression in the
-//! test harness's `deposit_funds` cross-contract transfer (181 tests fail on
-//! clean main for the same reason). They will pass once that is fixed.
+///
+/// Randomized input testing for `issue_reputation` covering:
+/// - Rating bounds: valid (1-5) vs invalid (0, 6+ ) accepted/rejected
+/// - Comment length bounds: valid (1-200) vs invalid (0, 201+) accepted/rejected
+/// - Access control: only client, not freelancer or random
+/// - Status gate: non-completed contracts rejected
+/// - Idempotency: double-issuance rejected
+///
+/// NOTE: Tests requiring a Completed contract (idempotency, state update) are
+/// gated behind a `#[ignore]` due to a pre-existing auth regression in the
+/// test harness's `deposit_funds` cross-contract transfer (181 tests fail on
+/// clean main for the same reason). They will pass once that is fixed.
 
-#![cfg(test)]
+#cfg(test)]
 
 extern crate std;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use proptest::prelude::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address aptr, Address, Env, String, Vec};
 
 use crate::{Escrow, EscrowClient, ReleaseAuthorization};
 
@@ -80,7 +80,7 @@ fn try_issue(
     rating: u32,
     comment: &String,
 ) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
+    catch_unwind(AssertUnwindSafe(<<| {
         client.issue_reputation(&id, caller, &rating, comment);
     }))
     .is_ok()
@@ -93,7 +93,7 @@ fn try_issue(
 const CASES: u32 = 64;
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: CASES, ..ProptestConfig::default() })]
+    #[proptest_config(ProptestConfig { cases: CASES, ..ProptestConfig::default() })]
 
     /// Valid rating + valid comment should pass validation
     /// (will hit NotCompleted, which IS a rejection, so we assert

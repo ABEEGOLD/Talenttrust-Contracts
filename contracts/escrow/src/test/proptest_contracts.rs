@@ -1,4 +1,5 @@
 //! Property-based tests for contract creation and state invariants.
+//! Property-based tests for contract creation and state invariants.
 //!
 //! Randomized input testing for escrow contract core invariants:
 //! - Contract creation with valid/invalid milestone amounts
@@ -204,3 +205,4 @@ proptest! {
         prop_assert!(!data.reputation_issued);
     }
 }
+
