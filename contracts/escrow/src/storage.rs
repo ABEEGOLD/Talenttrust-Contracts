@@ -192,11 +192,8 @@ pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
 /// # Returns
 /// `true` if initialized, or panics with `NotInitialized`
 pub(crate) fn require_initialized(env: &Env) -> bool {
-    // Invariant 1: initialization is a hard prerequisite. We read the flag
-    // directly (no caching) so that a pause/emergency set in the same
-    // transaction is always observed. Missing key is treated as
-    // uninitialized, never as "ok".
-    env.storage()
+    let initialized = env
+        .storage()
         .persistent()
         .get::<_, bool>(&DataKey::Initialized)
         .unwrap_or(false);

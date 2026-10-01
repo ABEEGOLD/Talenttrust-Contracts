@@ -1,1 +1,113 @@
-dXNlIHNvcm9iYW5fc2RrOjp2ZWM7Cgp1c2Ugc3VwZXI6Onthc3NlcnRfY29udHJhY3RfZXJyb3IsIEVzY3Jvd0ZpeHR1cmUsIE1JTEVTVE9ORV9UV099Owp1c2UgY3JhdGU6OntDb250cmFjdFN0YXR1cywgRXJyb3J9OwoKLy8vIFJlZnVuZHMgYXJlIGF2YWlsYWJsZSBpbW1lZGlhdGVseSBmcm9tIGEgZml4dHVyZSBmdW5kZWQgdGhyb3VnaCByZWFsIFNBQyBjdXN0b2R5LgojW3Rlc3RdCmZuIHJlZnVuZF9yZXR1cm5zX2FuX3VucmVsZWFzZWRfbWlsZXN0b25lKCkgewogICAgbGV0IGZpeHR1cmUgPSBFc2Nyb3dGaXh0dXJlOjpidWlsZGVyKCkuZnVuZGVkKCkuYnVpbGQoKTsKICAgIGxldCBlc2Nyb3cgPSBmaXh0dXJlLmVzY3JvdygpOwogICAgbGV0IGlkcyA9IHZlYyFbJmZpeHR1cmUuZW52LCAxX3UzMl07CgogICAgYXNzZXJ0X2VxISgKICAgICAgICBlc2Nyb3cucmVmdW5kX3VucmVsZWFzZWRfbWlsZXN0b25lcygmZml4dHVyZS5lc2Nyb3dfaWQsICZpZHMpLAogICAgICAgIE1JTEVTVE9ORV9UV08KICAgICk7CiAgICBhc3NlcnRfZXEhKAogICAgICAgIGVzY3Jvdy5nZXRfY29udHJhY3QoJmZpeHR1cmUuZXNjcm93X2lkKS5zdGF0dXMsCiAgICAgICAgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZAogICAgKTsKfQoKLy8vIEEgY29tcGxldGVkIGZpeHR1cmUgcmVqZWN0cyByZWZ1bmRzLCBwcmVzZXJ2aW5nIGl0cyB0ZXJtaW5hbCBhY2NvdW50aW5nIHN0YXRlLgojW3Rlc3RdCmZuIHJlZnVuZF9yZWplY3RzX2NvbXBsZXRlZF9jb250cmFjdCgpIHsKICAgIGxldCBmaXh0dXJlID0gRXNjcm93Rml4dHVyZTo6YnVpbGRlcigpLmZ1bmRlZCgpLmJ1aWxkKCk7CiAgICBsZXQgZXNjcm93ID0gZml4dHVyZS5lc2Nyb3coKTsKICAgIGZvciBpbmRleCBpbiAwLi4zX3UzMiB7CiAgICAgICAgZXNjcm93LmFwcHJvdmVfbWlsZXN0b25lX3JlbGVhc2UoJmZpeHR1cmUuZXNjcm93X2lkLCAmZml4dHVyZS5jbGllbnQsICZpbmRleCk7CiAgICAgICAgZXNjcm93LnJlbGVhc2VfbWlsZXN0b25lKCZmaXh0dXJlLmVzY3Jvd19pZCwgJmZpeHR1cmUuY2xpZW50LCAmaW5kZXgpOwogICAgfQogICAgbGV0IGlkcyA9IHZlYyFbJmZpeHR1cmUuZW52LCAwX3UzMl07CiAgICBhc3NlcnRfY29udHJhY3RfZXJyb3IoCiAgICAgICAgZXNjcm93LnRyeV9yZWZ1bmRfdW5yZWxlYXNlZF9taWxlc3RvbmVzKCZmaXh0dXJlLmVzY3Jvd19pZCwgJmlkcyksCiAgICAgICAgRXJyb3I6OkludmFsaWRTdGF0ZSwKICAgICk7Cn0KCi8vLyBSZWZ1bmRpbmcgdGhlIHNhbWUgbWlsZXN0b25lIHR3aWNlIGlzIGRldGVybWluaXN0aWM6IHRoZSBzZWNvbmQgYXR0ZW1wdCBtdXN0IGZhaWwK Ly8vIHdpdGggYSBzdGFibGUgZXJyb3IgYW5kIG11c3Qgbm90IGNoYW5nZSB0aGUgY29udHJhY3Qgc3RhdGUgb3IgYmFsYW5jZXMuCiNbdGVzdF0KZm4gcmVmdW5kX2lzX2lkZW1wb3RlbnRfZm9yX2FscmVhZHlfcmVmdW5kZWRfbWlsZXN0b25lKCkgewogICAgbGV0IGZpeHR1cmUgPSBFc2Nyb3dGaXh0dXJlOjpidWlsZGVyKCkuZnVuZGVkKCkuYnVpbGQoKTsKICAgIGxldCBlc2Nyb3cgPSBmaXh0dXJlLmVzY3JvdygpOwogICAgbGV0IGlkcyA9IHZlYyFbJmZpeHR1cmUuZW52LCAxX3UzMl07CgogICAgZXNjcm93LnJlZnVuZF91bnJlbGVhc2VkX21pbGVzdG9uZXMoJmZpeHR1cmUuZXNjcm93X2lkLCAnaWRzKTsKICAgIGxldCBzdGF0dXNfYWZ0ZXJfZmlyc3QgPSBlc2Nyb3cuZ2V0X2NvbnRyYWN0KCZmaXh0dXJlLmVzY3Jvd19pZCkuc3RhdHVzOwoKICAgIGFzc2VydF9jb250cmFjdF9lcnJvcigKICAgICAgICBlc2Nyb3cudHJ5X3JlZnVuZF91bnJlbGVhc2VkX21pbGVzdG9uZXMoJmZpeHR1cmUuZXNjcm93X2lkLCAmaWRzKSwKICAgICAgICBFcnJvcjo6SW52YWxpZFN0YXRlLAogICAgKTsKICAgIGFzc2VydF9lcSEoCiAgICAgICAgZXNjcm93LmdldF9jb250cmFjdCgmZml4dHVyZS5lc2Nyb3dfaWQpLnN0YXR1cywKICAgICAgICBzdGF0dXNfYWZ0ZXJfZmlyc3QKICAgICk7Cn0KCi8vLyBBbiBlbXB0eSBtaWxlc3RvbmUgc2VsZWN0aW9uIGlzIGEgZGV0ZXJtaW5pc3RpYyBuby1vcCB0aGF0IG11c3Qgbm90IG11dGF0ZSBzdGF0ZS4KI1t0ZXN0XQpmbiByZWZ1bmRfd2l0aF9lbXB0eV9zZWxlY3Rpb25faXNfbm9fb3AoKSB7CiAgICBsZXQgZml4dHVyZSA9IEVzY3Jvd0ZpeHR1cmU6OmJ1aWxkZXIoKS5mdW5kZWQoKS5idWlsZCgpOwogICAgbGV0IGVzY3JvdyA9IGZpeHR1cmUuZXNjcm93KCk7CiAgICBsZXQgaWRzID0gdmVjWyZmaXh0dXJlLmVudl07CiAgICBsZXQgc3RhdHVzX2JlZm9yZSA9IGVzY3Jvdy5nZXRfY29udHJhY3QoJmZpeHR1cmUuZXNjcm93X2lkKS5zdGF0dXM7CgogICAgZXNjcm93LnJlZnVuZF91bnJlbGVhc2VkX21pbGVzdG9uZXMoJmZpeHR1cmUuZXNjcm93X2lkLCAmaWRzKTsKCiAgICBhc3NlcnRfZXEhKAogICAgICAgIGVzY3Jvdy5nZXRfY29udHJhY3QoJmZpeHR1cmUuZXNjcm93X2lkKS5zdGF0dXMsCiAgICAgICAgc3RhdHVzX2JlZm9yZQogICAgKTsKfQoKLy8vIEEgcmVmdW5kIGZvciBhIG1pbGVzdG9uZSB0aGF0IGRvZXMgbm90IGV4aXN0IGlzIHJlamVjdGVkIHdpdGhvdXQgbXV0YXRpbmcgc3RhdGUuCiNbdGVzdF0KZm4gcmVmdW5kX3JlamVjdHNfdW5rbm93bl9taWxlc3RvbmUoKSB7CiAgICBsZXQgZml4dHVyZSA9IEVzY3Jvd0ZpeHR1cmU6OmJ1aWxkZXIoKS5mdW5kZWQoKS5idWlsZCgpOwogICAgbGV0IGVzY3JvdyA9IGZpeHR1cmUuZXNjcm93KCk7CiAgICBsZXQgaWRzID0gdmVjWyZmaXh0dXJlLmVudiwgOTlfdTMyXTsKICAgIGxldCBzdGF0dXNfYmVmb3JlID0gZXNjcm93LmdldF9jb250cmFjdCgmZml4dHVyZS5lc2Nyb3dfaWQpLnN0YXR1czsKCiAgICBhc3NlcnRfY29udHJhY3RfZXJyb3IoCiAgICAgICAgZXNjcm93LnRyeV9yZWZ1bmRfdW5yZWxlYXNlZF9taWxlc3RvbmVzKCZmaXh0dXJlLmVzY3Jvd19pZCwgJmlkcyksCiAgICAgICAgRXJyb3I6OkludmFsaWRNaWxlc3RvbmUsCiAgICApOwogICAgYXNzZXJ0X2VxISgKICAgICAgICBlc2Nyb3cuZ2V0X2NvbnRyYWN0KCZmaXh0dXJlLmVzY3Jvd19pZCkuc3RhdHVzLAogICAgICAgIHN0YXR1c19iZWZvcmUKICAgICk7Cn0KCi8vLyBSZWZ1bmRzIGFyZSByZWplY3RlZCBiZWZvcmUgZnVuZGluZywgcHJlc2VydmluZyB0aGUgY29udHJhY3QncyBpbml0aWFsIHN0YXRlLgojW3Rlc3RdCmZuIHJlZnVuZF9yZWplY3RzX3VuZnVuZGVkX2NvbnRyYWN0KCkgewogICAgbGV0IGZpeHR1cmUgPSBFc2Nyb3dGaXh0dXJlOjpidWlsZGVyKCkuYnVpbGQoKTsKICAgIGxldCBlc2Nyb3cgPSBmaXh0dXJlLmVzY3JvdygpOwogICAgbGV0IGlkcyA9IHZlYyFbJmZpeHR1cmUuZW52LCAwX3UzMl07CgogICAgYXNzZXJ0X2NvbnRyYWN0X2Vycm9yKAogICAgICAgIGVzY3Jvdy50cnlfcmVmdW5kX3VucmVsZWFzZWRfbWlsZXN0b25lcygmZml4dHVyZS5lc2Nyb3dfaWQsICZpZHMpLAogICAgICAgIEVycm9yOjpJbnZhbGlkU3RhdGUsCiAgICApOwp9Cg==
+use soroban_sdk::vec;
+
+use super::{assert_contract_error, EscrowFixture, MILESTONE_TWO};
+use crate::{ContractStatus, Error};
+
+/// Refunds are available immediately from a fixture funded through real SAC custody.
+#[test]
+fn refund_returns_an_unreleased_milestone() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    let ids = vec![&fixture.env, 1_u32];
+
+    assert_eq!(
+        escrow.refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        MILESTONE_TWO
+    );
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Funded
+    );
+}
+
+/// A completed fixture rejects refunds, preserving its terminal accounting state.
+#[test]
+fn refund_rejects_completed_contract() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    for index in 0..3_u32 {
+        escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &index);
+        escrow.release_milestone(&fixture.escrow_id, &fixture.client, 'index);
+    }
+    let ids = vec![&fixture.env, 0_u32];
+    assert_contract_error(
+        escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        Error::InvalidState,
+    );
+}
+
+/// Refunding the same milestone twice is rejected, preventing double refunds.
+#[test]
+fn refund_rejects_duplicate_refund() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    let ids = vec!+&fixture.env, 1_u32];
+
+    assert_eq!(
+        escrow.refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        MILESTONE_TWO
+    );
+    assert_contract_error(
+        escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        Error::InvalidState,
+    );
+}
+
+/// Refunding a milestone that was already released is rejected.
+#[test]
+fn refund_rejects_released_milestone() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    escrow.approve_milestone_release(&fixture.escrow_id, &fixture.client, &1_u32);
+    escrow.release_milestone(&fixture.escrow_id, &fixture.client, &1_u32);
+
+    let ids = vec![&fixture.env, 1_u32];
+    assert_contract_error(
+        escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        Error::InvalidState,
+    );
+}
+
+/// Refunding an out-of-range milestone index is rejected without mutating state.
+#[test]
+fn refund_rejects_out_of_range_milestone() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    let ids = vec!&fixture.env, 999_u32];
+
+    assert_contract_error(
+        escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        Error::InvalidMilestone,
+    );
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Funded
+    );
+}
+
+/// Refunding an empty milestone list is a no-op that preserves the contract state.
+#[test]
+fn refund_empty_list_is no_op() {
+    let fixture = EscrowFixture::builder().funded().build();
+    let escrow = fixture.escrow();
+    let ids = vec![&fixture.env];
+
+    escrow.refund_unreleased_milestones(&fixture.escrow_id, &ids);
+    assert_eq!(
+        escrow.get_contract(&fixture.escrow_id).status,
+        ContractStatus::Funded
+    );
+}
+
+/// Refunds from an unfunded contract are rejected.
+#[test]
+fn refund_rejects_unfunded_contract() {
+    let fixture = EscrowFixture::builder().build();
+    let escrow = fixture.escrow();
+    let ids = vec![&fixture.env, 1_u32];
+
+    assert_contract_error(
+        escrow.try_refund_unreleased_milestones(&fixture.escrow_id, &ids),
+        Error::InvalidState,
+    );
+}

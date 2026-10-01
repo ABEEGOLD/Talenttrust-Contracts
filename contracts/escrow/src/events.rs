@@ -17,12 +17,13 @@ pub const MAX_EVENT_BATCH_SIZE: usize = 100;
 /// in cheaply reconstructing contract lifecycle history and financial balances.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("contract"), contract_id: u32)`
-/// - **Payload**: `(status: u32, funded_amount: i128, released_amount: i128, refunded_amount: i128, total_deposited: i128)`"
-///
-/// # Panics
-/// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMusbePositive` if any amount field is negative.
+/// - Panics:
+///   - `InvalidContractId` if `contract_id` is zero.
+///   - `AmountMustBePositive` if any amount field is negative.
+/// - Ensures the invariant that the escrow accounting identity holds:
+///   `total_deposited == funded_amount + released_amount + refunded_amount`.
+///   Violations panic with `InvariantViolation` so that bad state cannot be
+///   silently published to indexers.
 pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contract) {
     if contract_id == 0 {
         env.panic_with_error(EscrowError::InvalidContractId);
@@ -35,6 +36,9 @@ pub fn emit_contract_indexed_event(env: &Env, contract_id: u32, contract: &Contr
         contract.total_deposited,
     )
     .unwrap_or_else(|e| env.panic_with_error(e));
+
+    validate_contract_invariants(contract)
+        .unwrap_or_else(|e| env.panic_with_error(e));
 
     env.events().publish(
         (symbol_short!("contract"), contract_id),
@@ -76,15 +80,62 @@ pub(crate) fn validate_event_amounts(
     Ok(())
 }
 
+/// Validate the accounting invariants of a contract before publishing an
+/// indexed event. This guarantees off-chain indexers never observe a state
+/// where the escrow balance identity is broken.
+///
+/// Invariants enforced:
+/// - All amounts are non-negative.
+/// - `total_deposited == funded_amount + released_amount + refunded_amount`
+///   (the conservation of funds identity).
+/// - `released_amount` and `refunded_amount` are each bounded by the
+///   total deposited.
+///
+/// Returns `Err(InvariantViolation)` when any invariant is broken.
+pub(crate) fn validate_contract_invariants(
+    contract: &Contract,
+) -> Result<(), crate::EscrowError> {
+    // Re-check non-negativity so this function is safe to call independently.
+    validate_event_amounts(
+        contract.funded_amount,
+        contract.released_amount,
+        contract.refunded_amount,
+        contract.total_deposited,
+    )?;
+
+    // Conservation of funds: total deposited must equal the sum of the
+    // funded, released, and refunded amounts. Use checked addition to
+    // avoid silent overflow in debug builds.
+    let committed = contract
+        .funded_amount
+        .checked_add(contract.released_amount)
+        .and_then(|v| v.checked_add(contract.refunded_amount));
+
+    match committed {
+        Some(total) if total == contract.total_deposited => {}
+        _ => return Err(EscrowError::InvariantViolation),
+    }
+
+    // Released and refunded amounts cannot exceed the total deposited.
+    if contract.released_amount > contract.total_deposited
+        || contract.refunded_amount > contract.total_deposited
+    {
+        return Err(EscrowError::InvariantViolation);
+    }
+
+    Ok(())
+}
+
 /// Emits an indexed event when a dispute is opened on a contract.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("opened"))`
-/// - **Payload**: `(contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)`"
+/// - Topic: (symbol_short!("dispute"), symbol_short!("opened"))
+/// - Payload: (contract_id: u32, caller: Address, funded_amount: i128, released_amount: i128, refunded_amount: i128)
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMusbePositive` if any amount field is negative.
+/// - `AmountMustBePositive` if any amount field is negative.
+/// - `InvariantViolation` if the conservation of funds identity is broken.
 pub fn emit_dispute_opened_event(
     env: &Env,
     contract_id: u32,
@@ -95,13 +146,8 @@ pub fn emit_dispute_opened_event(
         env.panic_with_error(EscrowError::InvalidContractId);
     }
 
-    validate_event_amounts(
-        contract.funded_amount,
-        contract.released_amount,
-        contract.refunded_amount,
-        contract.total_deposited,
-    )
-    .unwrap_or_else(|e| env.panic_with_error(e));
+    validate_contract_invariants(contract)
+        .unwrap_or_else(|e| env.panic_with_error(e));
 
     env.events().publish(
         (symbol_short!("dispute"), symbol_short!("opened")),
@@ -120,12 +166,14 @@ pub fn emit_dispute_opened_event(
 /// Emits an indexed event when a dispute is resolved.
 ///
 /// # Event Specification
-/// - **Topic**: `(symbol_short!("dispute"), symbol_short!("resolved"))`"
-/// - **Payload**: `(contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)`
+/// - Topic: (symbol_short!("dispute"), symbol_short!("resolved"))
+/// - Payload: (contract_id: u32, client_payout: i128, freelancer_payout: i128, resolution_code: u32, final_status: u32)
 ///
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
-/// - `AmountMustBePositive` if any payout amount is negative.
+/// - `AmountMustBePositive` if any payout is negative.
+/// - `InvariantViolation` if the combined payouts overflow or are
+///   inconsistent with the contract's funded amount.
 pub fn emit_dispute_resolved_event(
     env: &Env,
     contract_id: u32,
@@ -140,6 +188,11 @@ pub fn emit_dispute_resolved_event(
 
     if client_payout < 0 || freelancer_payout < 0 {
         env.panic_with_error(EscrowError::AmountMustBePositive);
+    }
+
+    // Payouts cannot overflow when combined.
+    if client_payout.checked_add(freelancer_payout).is_none() {
+        env.panic_with_error(EscrowError::InvariantViolation);
     }
 
     env.events().publish(
@@ -161,6 +214,7 @@ pub fn emit_dispute_resolved_event(
 /// # Panics
 /// - `InvalidContractId` if `contract_id` is zero.
 /// - `AmountMustBePositive` if `amount`, `gross_amount`, or `fee` is negative.
+/// - `InvariantViolation` if `fee > gross_amount` or `amount != gross_amount - fee`.
 pub fn emit_milestone_released_event(
     env: &Env,
     contract_id: u32,
@@ -176,6 +230,16 @@ pub fn emit_milestone_released_event(
 
     if amount < 0 || gross_amount < 0 || fee < 0 {
         env.panic_with_error(EscrowError::AmountMustBePositive);
+    }
+
+    // Net amount must equal gross minus fee, and fee cannot exceed gross.
+    if fee > gross_amount {
+        env.panic_with_error(EscrowError::InvariantViolation);
+    }
+
+    match gross_amount.checked_sub(fee) {
+        Some(net) if net == amount => {}
+        _ => env.panic_with_error(EscrowError::InvariantViolation),
     }
 
     env.events().publish(

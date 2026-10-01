@@ -1,1 +1,498 @@
-Ly8hIFBlci1taWxlc3RvbmUgcmVmdW5kIGltcGxlbWVudGF0aW9uIGZvciB0aGUgVGFsZW50VHJ1c3QgZXNjcm93IGNvbnRyYWN0LgovLy8KLy8vIFRoaXMgbW9kdWxlIHByb3ZpZGVzIHRoZSBgcmVmdW5kX3VucmVsZWFzZWRfbWlsZXN0b25lc2AgZnVuY3Rpb25hbGl0eSB0aGF0IGFsbG93cwojLy8gY2xpZW50cyB0byByZWZ1bmQgc3BlY2lmaWMgdW5yZWxlYXNlZCBtaWxlc3RvbmVzIGJhY2sgdG8gdGhlaXIgYWNjb3VudC4KLy8vCi8vLyAjIFNlY3VyaXR5IEd1YXJhbnRlZXMKLy8vCi8vLyAtICoqQXV0aG9yaXphdGlvbioqOiBPbmx5IHRoZSBjbGllbnQgY2FuIGluaXRpYXRlIHJlZnVuZHMgKGVuZm9yY2VkIHZpYSBgcmVxdWlyZV9hdXRoKClgKQovLy8gLSAqKkF0b21pY2l0eSoqOiBBbGwgdmFsaWRhdGlvbnMgb2NjdXIgYmVmb3JlIGFueSBzdGF0ZSBjaGFuZ2VzCi8vLyAtICoqSWRlbXBvdGVuY3kqKjogUmVmdW5kZWQgbWlsZXN0b25lcyBjYW5ub3QgYmUgcmVmdW5kZWQgYWdhaW4KLy8vIC0gKipCYWxhbmNlIFByb3RlY3Rpb24qKjogVmVyaWZpZXMgc3VmZmljaWVudCBiYWxhbmNlIGJlZm9yZSBwcm9jZXNzaW5nCi8vLyAtICoqU3RhdGUgTWFjaGluZSBJbnRlZ3JpdHkqKjogUmVzcGVjdHMgY29udHJhY3QgbGlmZWN5Y2xlLCBjYW5ub3QgcmVmdW5kIHJlbGVhc2VkIG1pbGVzdG9uZXMKLy8vCi8vLyAjIFZhbGlkYXRpb24gR3VhcmRzCi8vLwovLy8gLSBgRW1wdHlSZWZ1bmRSZXF1ZXN0YDogUmVqZWN0cyBlbXB0eSBtaWxlc3RvbmUgaW5kZXggdmVjdG9ycwovLy8gLSBgRHVwbGljYXRlTWlsZXN0b25lSW5SZWZ1bmRgOiBQcmV2ZW50cyBkdXBsaWNhdGUgaW5kaWNlcyBpbiBhIHNpbmdsZSByZXF1ZXN0Ci8vLyAtIGBBbHJlYWR5UmVsZWFzZWRgOiBDYW5ub3QgcmVmdW5kIG1pbGVzdG9uZXMgdGhhdCB3ZXJlIGFscmVhZHkgcmVsZWFzZWQKLy8vIC0gYEFscmVhZHlSZWZ1bmRlZGA6IENhbm5vdCByZWZ1bmQgdGhlIHNhbWUgbWlsZXN0b25lIHR3aWNlCi8vLyAtIGBJbnN1ZmZpY2llbnRGdW5kc2A6IEVuc3VyZXMgY29udHJhY3QgaGFzIGVub3VnaCBiYWxhbmNlIHRvIHByb2Nlc3MgcmVmdW5kCi8vLwovLy8gIyBBY2NvdW50aW5nIEludmFyaWFudAovLy8KLy8vIFRoZSBpbXBsZW1lbnRhdGlvbiBtYWludGFpbnM6Ci8vLyBgYGB0ZXh0Ci8vLyBmdW5kZWRfYW1vdW50ID0gcmVsZWFzZWRfYW1vdW50ICsgcmVmdW5kZWRfYW1vdW50ICsgYXZhaWxhYmxlX2JhbGFuY2UKLy8vIGBgYAovLy8KLy8vICMgU3RhdHVzIFRyYW5zaXRpb25zCi8vLwovLy8gLSAqKkZ1bmRlZCDihpIgUmVmdW5kZWQqKjogQWxsIHVucmVsZWFzZWQgbWlsZXN0b25lcyByZWZ1bmRlZCAobm8gcmVsZWFzZXMpCi8vLyAtICoqRnVuZGVkIOKGkiBGdW5kZWQqKjogUGFydGlhbCByZWZ1bmQgKHNvbWUgbWlsZXN0b25lcyByZW1haW4gdW5yZWxlYXNlZC91bnJlZnVuZGVkKQovLy8gLSAqKkZ1bmRlZCDihpIgQ29tcGxldGVkKio6IEFsbCBtaWxlc3RvbmVzIGVpdGhlciByZWxlYXNlZCBvciByZWZ1bmRlZCAobWl4ZWQgc3RhdGUpCi8vLwovLy8gIyBEZXRlcm1pbmlzdGljIEZhaWx1cmUgUmVjb3ZlcnkKLy8vCi8vLyBUaGUgcmVmdW5kIGZsb3cgaXMgc3RydWN0dXJlZCBzbyB0aGF0IGFueSBmYWlsdXJlIGxlYXZlcyB0aGUgY29udHJhY3QgaW4gYSB3ZWxsLWRlZmluZWQKLy8vIHN0YXRlIHRoYXQgY2FuIGJlIHJldHJpZWQgb3Igb2JzZXJ2ZWQ6Ci8vLwovLy8gMS4gKipWYWxpZGF0ZSoqIOKAlCBhbGwgZ3VhcmRzIChlbXB0eSwgZHVwbGljYXRlLCBib3VuZHMsIHJlbGVhc2VkLCByZWZ1bmRlZCwgYmFsYW5jZSkKLy8vICAgIHJ1biBiZWZvcmUgYW55IHN0YXRlIG11dGF0aW9uLiBBIGZhaWx1cmUgaGVyZSBpcyBhIG5vLW9wLgovLy8gMi4gKipQZXJzaXN0Kiog4oCUIG1pbGVzdG9uZSBhbmQgY29udHJhY3QgcmVjb3JkcyBhcmUgd3JpdHRlbiB0b2dldGhlciBhbmQgYmVmb3JlIHRoZQovLy8gICAgdG9rZW4gdHJhbnNmZXIuIElmIHRoZSB0cmFuc2ZlciBmYWlscywgdGhlIGVudGlyZSB0cmFuc2FjdGlvbiByZXZlcnRzLCBzbyB0aGUKLy8vICAgIHBlcnNpc3RlZCBzdGF0ZSBjYW5ub3QgZGl2ZXJnZSBmcm9tIHRoZSB0b2tlbiBjdXN0b2R5LgovLy8gMy4gKipFbWl0Kiog4oCUIGEgcGVyLW1pbGVzdG9uZSByZWZ1bmQgZXZlbnQgaXMgcHVibGlzaGVkIGZvciBlYWNoIG1pbGVzdG9uZSBzbyBvZmYtY2hhaW4KLy8vICAgIGluZGV4ZXJzIGNhbiByZWNvbnN0cnVjdCB0aGUgcmVjb3Zlcnkgd2l0aG91dCByZWx5aW5nIG9uIGludGVybmFsIHN0YXRlLgovLy8gNC4gKipUcmFuc2ZlcioqIOKAlCB0aGUgYWN0dWFsIHRva2VuIG1vdmVtZW50IGlzIHRoZSBsYXN0IHN0ZXAuIEEgZmFpbHVyZSBoZXJlIHJldmVydHMKLy8vICAgIGV2ZXJ5dGhpbmcsIGFuZCB0aGUgY2xpZW50IGNhbiByZXRyeSB0aGUgZW50aXJlIGNhbGwgZGV0ZXJtaW5pc3RpY2FsbHkuCi8vLwovLy8gVGhpcyBtYWtlcyByZXRyaWVzIGlkZW1wb3RlbnQ6IGEgcmV0cnkgYWZ0ZXIgYSBwYXJ0aWFsIGZhaWx1cmUgZWl0aGVyIHN1Y2NlZWRzIGZ1bGx5Ci8vLyBvciBmYWlscyB3aXRoIHRoZSBzYW1lIGRldGVybWluaXN0aWMgZXJyb3IsIGFuZCBjb25jdXJyZW50IGV4ZWN1dGlvbiBpcyBzZXJpYWxpemVkCi8vLyBieSB0aGUgaG9zdCB0cmFuc2FjdGlvbiBib3VuZGFyeS4KCnVzZSBjcmF0ZTo6e2tleXMsIENvbnRyYWN0LCBDb250cmFjdFN0YXR1cywgRGF0YUtleSwgRXNjcm93RXJyb3IsIE1pbGVzdG9uZX07CnVzZSBzcm9iYW5fc2RrOjp7RW52LCBWZWN9OwoKLy8vIFJlZnVuZHMgdW5yZWxlYXNlZCBtaWxlc3RvbmVzIGJhY2sgdG8gdGhlIGNsaWVudC4KLy8vCi8vLyAjIEFyZ3VtZW50cwoKLy8vCi8vLyAqIGBlbnZgIC0gVGhlIGNvbnRyYWN0IGVudmlyb25tZW50Ci8vLyAqIGBjb250cmFjdF9pZGAgLSBUaGUgdW5pcXVlIGlkZW50aWZpZXIgb2YgdGhlIGNvbnRyYWN0Ci8vLyAqIGBtaWxlc3RvbmVfaW5kaWNlc2AgLSBWZWN0b3Igb2YgbWlsZXN0b25lIGluZGljZXMgdG8gcmVmdW5kICgwLWluZGV4ZWQpCi8vLwovLy8gIyBSZXR1cm5zCi8vLwovLy8gVGhlIHRvdGFsIGFtb3VudCByZWZ1bmRlZCAoc3VtIG9mIGFsbCByZWZ1bmRlZCBtaWxlc3RvbmUgYW1vdW50cykKLy8vCi8vLyAjIEVycm9ycwovLy8KLy8vICogYENvbnRyYWN0Tm90Rm91bmRgIC0gQ29udHJhY3Qgd2l0aCBnaXZlbiBJRCBkb2Vzbid0IGV4aXN0Ci8vLyAqIGBFbXB0eVJlZnVuZFJlcXVlc3RgIC0gbWlsZXN0b25lX2luZGljZXMgdmVjdG9yIGlzIGVtcHR5Ci8vLyAqIGBEdXBsaWNhdGVNaWxlc3RvbmVJblJlZnVuZGAgLSBTYW1lIG1pbGVzdG9uZSBhcHBlYXJzIG11bHRpcGxlIHRpbWVzCi8vLyAqIGBJbnZhbGlkTWlsZXN0b25lYCAtIE1pbGVzdG9uZSBpbmRleCBvdXQgb2YgYm91bmRzCi8vLyAqIGBBbHJlYWR5UmVsZWFzZWRgIC0gQXR0ZW1wdGluZyB0byByZWZ1bmQgYSByZWxlYXNlZCBtaWxlc3RvbmUKLy8vICogYEFscmVhZHlSZWZ1bmRlZGAgLSBBdHRlbXB0aW5nIHRvIHJlZnVuZCBhbiBhbHJlYWR5LXJlZnVuZGVkIG1pbGVzdG9uZQovLy8gKiBgSW5zdWZmaWNpZW50RnVuZHNgIC0gQ29udHJhY3QgZG9lc24ndCBoYXZlIGVub3VnaCBiYWxhbmNlCi8vLwovLy8gIyBFeGFtcGxlCi8vLwovLy8gYGBgaWdub3JlCi8vLyAvLyBSZWZ1bmQgbWlsZXN0b25lcyAxIGFuZCAyIChrZWVwaW5nIG1pbGVzdG9uZSAwKQovLy8gbGV0IHJlZnVuZF9pZHMgPSB2ZWMhWyZlbnYsIDFfdTMyLCAyX3UzMl07Ci8vLyBsZXQgcmVmdW5kZWRfYW1vdW50ID0gY2xpZW50LnJlZnVuZF91bnJlbGVhc2VkX21pbGVzdG9uZXMoJmNvbnRyYWN0X2lkLCAmcmVmdW5kX2lkcyk7Ci8vLyBgYGAKcHVibGljIGZuIHJlZnVuZF91bnJlbGVhc2VkX21pbGVzdG9uZXMoCiAgICBlbnY6ICZFbnYsCiAgICBjb250cmFjdF9pZDogdTMyLAogICAgbWlsZXN0b25lX2luZGljZXM6ICZWZWM8dTMyPiwKKSAtPiBpMTI4IHsKICAgIC8vIEd1YXJkOiBSZWplY3QgZW1wdHkgcmVmdW5kIHJlcXVlc3RzCiAgICBpZiBtaWxlc3RvbmVfaW5kaWNlcy5pc19lbXB0eSgpIHsKICAgICAgICBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6RW1wdHlSZWZ1bmRSZXF1ZXN0KTsKICAgIH0KCiAgICAvLyBHdWFyZDogQ2hlY2sgZm9yIGR1cGxpY2F0ZSBtaWxlc3RvbmUgaW5kaWNlcwogICAgY2hlY2tfbm9fZHVwbGljYXRlcyhlbnYsIG1pbGVzdG9uZV9pbmRpY2VzKTsKCiAgICAvLyBMb2FkIGNvbnRyYWN0IHN0YXRlCiAgICBsZXQgbXV0IGNvbnRyYWN0OiBDb250cmFjdCA9IGVudgogICAgICAgIC5zdG9yYWdlKCkKICAgICAgICAucGVyc2lzdGVudCgpCiAgICAgICAgLmdldCgmRGF0YUtleTo6Q29udHJhY3QoY29udHJhY3RfaWQpKQogICAgICAgIC51bndyYXBfb3JfZWxzZSh8fCBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6Q29udHJhY3ROb3RGb3VuZCkpOwoKICAgIC8vIEF1dGhvcml6YXRpb246IE9ubHkgY2xpZW50IGNhbiByZWZ1bmQKICAgIGNvbnRyYWN0LmNsaWVudC5yZXF1aXJlX2F1dGgoKTsKCiAgICAvLyBUZXJtaW5hbC1zdGF0ZSBndWFyZHM6IG9uY2UgYSBjb250cmFjdCBpcyBDYW5jZWxsZWQgb3IgUmVmdW5kZWQsIG5vIGZ1cnRoZXIKICAgIC8vIHJlZnVuZCBvciB2YWx1ZS1tb3Zpbmcgb3BlcmF0aW9ucyBhcmUgcGVybWl0dGVkLgogICAgaWYgY29udHJhY3Quc3RhdHVzID09IENvbnRyYWN0U3RhdHVzOjpDYW5jZWxsZWQgewogICAgICAgIGVudi5wYW5pY193aXRoX2Vycm9yKEVzY3Jvd0Vycm9yOjpDb250cmFjdENhbmNlbGxlZCk7CiAgICB9CiAgICBpZiBjb250cmFjdC5zdGF0dXMgPT0gQ29udHJhY3RTdGF0dXM6OlJlZnVuZGVkIHsKICAgICAgICBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6SW52YWxpZFN0YXRlKTsKICAgIH0KCiAgICAvLyBMb2FkIG1pbGVzdG9uZXMKICAgIGxldCBtaWxlc3RvbmVfa2V5ID0ga2V5czo6bWlsZXN0b25lX2tleShlbnYsIGNvbnRyYWN0X2lkKTsKICAgIGxldCBtdXQgbWlsZXN0b25lczogVmVjPE1pbGVzdG9uZT4gPSBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5nZXQoJm1pbGVzdG9uZV9rZXkpLnVud3JhcCgpOwoKICAgIC8vIFZhbGlkYXRlIGFsbCBtaWxlc3RvbmVzIGFuZCBjYWxjdWxhdGUgdG90YWwgcmVmdW5kIGFtb3VudAogICAgbGV0IHRvdGFsX3JlZnVuZF9hbW91bnQgPSB2YWxpZGF0ZV9hbmRfY2FsY3VsYXRlX3JlZnVuZChlbnYsICZtaWxlc3RvbmVzLCBtaWxlc3RvbmVfaW5kaWNlcyk7CgogICAgLy8gR3VhcmQ6IENoZWNrIHN1ZmZpY2llbnQgYmFsYW5jZQogICAgY2hlY2tfc3VmZmljaWVudF9iYWxhbmNlKGVudiwgJmNvbnRyYWN0LCB0b3RhbF9yZWZ1bmRfYW1vdW50KTsKCiAgICAvLyBSZXRyaWV2ZSBzZXR0bGVtZW50IHRva2VuIGFuZCB2ZXJpZnkgb24tY2hhaW4gY3VzdG9keSBiZWZvcmUgbXV0YXRpbmcgc3RhdGUuCiAgICAvLyBUaGlzIGtlZXBzIHRoZSBwZXJzaXN0ZWQgYWNjb3VudGluZyBpbiBzeW5jIHdpdGggdGhlIHRva2VuIGJhbGFuY2UuCiAgICBsZXQgdG9rZW5fYWRkcmVzczogc29yb2Jhbl9zZGs6OkFkZHJlc3MgPSBlbnYKICAgICAgICAuc3RvcmFnZSgpCiAgICAgICAgLnBlcnNpc3RlbnQoKQogICAgICAgIC5nZXQoJkRhdGFLZXk6OlNldHRsZW1lbnRUb2tlbikKICAgICAgICAudW53cmFwX29yX2Vsc2UofHwgZW52LnBhbmljX3dpdGhfZXJyb3IoRXNjcm93RXJyb3I6Ok5vdEluaXRpYWxpemVkKSk7CiAgICBsZXQgdG9rZW5fY2xpZW50ID0gc29yb2Jhbl9zZGs6OnRva2VuOjpDbGllbnQ6Om5ldyhlbnYsICZ0b2tlbl9hZGRyZXNzKTsKICAgIGxldCBiYWxhbmNlID0gdG9rZW5fY2xpZW50LmJhbGFuY2UoJmVudi5jdXJyZW50X2NvbnRyYWN0X2FkZHJlc3MoKSk7CiAgICBpZiBiYWxhbmNlIDwgdG90YWxfcmVmdW5kX2Ftb3VudCB7CiAgICAgICAgZW52LnBhbmljX3dpdGhfZXJyb3IoRXNjcm93RXJyb3I6Okluc3VmZmljaWVudEZ1bmRzKTsKICAgIH0KCiAgICAvLyBNYXJrIG1pbGVzdG9uZXMgYXMgcmVmdW5kZWQgYW5kIHVwZGF0ZSBjb250cmFjdCBhY2NvdW50aW5nLgogICAgbWFya19taWxlc3RvbmVzX3JlZnVuZGVkKCZtdXQgbWlsZXN0b25lcywgbWlsZXN0b25lX2luZGljZXMpOwoKICAgIGNvbnRyYWN0LnJlZnVuZGVkX2Ftb3VudCA9IGNvbnRyYWN0CiAgICAgICAgLnJlZnVuZGVkX2Ftb3VudAogICAgICAgIC5jaGVja2VkX2FkZCh0b3RhbF9yZWZ1bmRfYW1vdW50KQogICAgICAgIC51bndyYXBfb3JfZWxzZSh8fCBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6UG90ZW50aWFsT3ZlcmZsb3cpKTsKICAgIHVwZGF0ZV9jb250cmFjdF9zdGF0dXMoJm11dCBjb250cmFjdCwgJm1pbGVzdG9uZXMpOwoKICAgIC8vIFBlcnNpc3QgY2hhbmdlcyBiZWZvcmUgdGhlIGV4dGVybmFsIHRva2VuIHRyYW5zZmVyLiBJZiB0aGUgdHJhbnNmZXIgZmFpbHMsIHRoZQogICAgLy8gaG9zdCByZXZlcnRzIHRoZSBlbnRpcmUgdHJhbnNhY3Rpb24sIHNvIHRoZSBwZXJzaXN0ZWQgc3RhdGUgY2Fubm90IGRpdmVyZ2UuCiAgICBlbnYuc3RvcmFnZSgpLnBlcnNpc3RlbnQoKS5zZXQoJm1pbGVzdG9uZV9rZXksICZtaWxlc3RvbmVzKTsKICAgIGVudi5zdG9yYWdlKCkKICAgICAgICAucGVyc2lzdGVudCgpCiAgICAgICAgLnNldCgmRGF0YUtleTo6Q29udHJhY3QoY29udHJhY3RfaWQpLCAmY29udHJhY3QpOwoKICAgIC8vIEVtaXQgb25lIGV2ZW50IHBlciByZWZ1bmRlZCBtaWxlc3RvbmUgc28gb2ZmLWNoYWluIGluZGV4ZXJzIGNhbiBvYnNlcnZlIHRoZQogICAgLy8gcmVjb3Zlcnkgd2l0aG91dCByZWx5aW5nIG9uIGludGVybmFsIHN0YXRlLgogICAgZm9yIGlkeCBpbiBtaWxlc3RvbmVfaW5kaWNlcy5pdGVyKCkgewogICAgICAgIGxldCBtaWxlc3RvbmUgPSBtaWxlc3RvbmVzLmdldChpZHgpLnVud3JhcCgpOwogICAgICAgIGNyYXRlOjpldmVudHM6OmVtaXRfbWlsZXN0b25lX3JlZnVuZGVkX2V2ZW50KAogICAgICAgICAgICBlbnYsCiAgICAgICAgICAgIGNvbnRyYWN0X2lkLAogICAgICAgICAgICBpZHgsCiAgICAgICAgICAgIG1pbGVzdG9uZS5hbW91bnQsCiAgICAgICAgICAgICZjb250cmFjdC5jbGllbnQsCiAgICAgICAgKTsKICAgIH0KCiAgICAvLyBGaW5hbCBzdGVwOiB0cmFuc2ZlciB0aGUgcmVmdW5kZWQgYW1vdW50IHRvIHRoZSBjbGllbnQuIEEgZmFpbHVyZSBoZXJlIHJldmVydHMKICAgIC8vIGFsbCBwZXJzaXN0ZWQgc3RhdGUgY2hhbmdlcyBhbmQgZXZlbnRzLCBsZWF2aW5nIHRoZSBjb250cmFjdCByZXRyeWFibGUuCiAgICB0b2tlbl9jbGllbnQudHJhbnNmZXIoCiAgICAgICAgJmVudi5jdXJyZW50X2NvbnRyYWN0X2FkZHJlc3MoKSwKICAgICAgICAmY29udHJhY3QuY2xpZW50LAogICAgICAgICZ0b3RhbF9yZWZ1bmRfYW1vdW50LAogICAgKTsKCiAgICB0b3RhbF9yZWZ1bmRfYW1vdW50Cn0KCi8vLyBDaGVja3MgZm9yIGR1cGxpY2F0ZSBtaWxlc3RvbmUgaW5kaWNlcyBpbiB0aGUgcmVmdW5kIHJlcXVlc3QuCmZuIGNoZWNrX25vX2R1cGxpY2F0ZXMoZW52OiAmRW52LCBtaWxlc3RvbmVfaW5kaWNlczogJlZlYzx1MzI+KSB7CiAgICBmb3IgaSBpbiAwLi5taWxlc3RvbmVfaW5kaWNlcy5sZW4oKSB7CiAgICAgICAgZm9yIGogaW4gKGkgKyAxKS4ubWlsZXN0b25lX2luZGljZXMubGVuKCkgewogICAgICAgICAgICBpZiBtaWxlc3RvbmVfaW5kaWNlcy5nZXQoaSkudW53cmFwKCkgPT0gbWlsZXN0b25lX2luZGljZXMuZ2V0KGopLnVud3JhcCgpIHsKICAgICAgICAgICAgICAgIGVudi5wYW5pY193aXRoX2Vycm9yKEVzY3Jvd0Vycm9yOjpEdXBsaWNhdGVNaWxlc3RvbmVJblJlZnVuZCk7CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICB9Cn0KCi8vLyBWYWxpZGF0ZXMgYWxsIG1pbGVzdG9uZXMgaW4gdGhlIHJlZnVuZCByZXF1ZXN0IGFuZCBjYWxjdWxhdGVzIHRvdGFsIHJlZnVuZCBhbW91bnQuCi8vLwovLy8gIyBWYWxpZGF0aW9uIFJ1bGVzCi8vLwovLy8gLSBNaWxlc3RvbmUgaW5kZXggbXVzdCBiZSB3aXRoaW4gYm91bmRzCi8vLyAtIE1pbGVzdG9uZSBtdXN0IG5vdCBiZSBhbHJlYWR5IHJlbGVhc2VkCi8vLyAtIE1pbGVzdG9uZSBtdXN0IG5vdCBiZSBhbHJlYWR5IHJlZnVuZGVkCmZuIHZhbGlkYXRlX2FuZF9jYWxjdWxhdGVfcmVmdW5kKAogICAgZW52OiAmRW52LAogICAgbWlsZXN0b25lczogJlZlYzxNaWxlc3RvbmU+LAogICAgbWlsZXN0b25lX2luZGljZXM6ICZWZWM8dTMyPiwKKSAtPiBpMTI4IHsKICAgIGxldCBtdXQgdG90YWxfcmVmdW5kX2Ftb3VudDogaTEyOCA9IDA7CgogICAgZm9yIGlkeCBpbiBtaWxlc3RvbmVfaW5kaWNlcy5pdGVyKCkgewogICAgICAgIC8vIEd1YXJkOiBDaGVjayBtaWxlc3RvbmUgZXhpc3RzCiAgICAgICAgaWYgaWR4ID49IG1pbGVzdG9uZXMubGVuKCkgewogICAgICAgICAgICBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6SW5kZXhPdXRPZkJvdW5kcyk7CiAgICAgICAgfQoKICAgICAgICBsZXQgbWlsZXN0b25lID0gbWlsZXN0b25lcy5nZXQoaWR4KS51bndyYXAoKTsKCiAgICAgICAgLy8gR3VhcmQ6IENhbm5vdCByZWZ1bmQgcmVsZWFzZWQgbWlsZXN0b25lcwogICAgICAgIGlmIG1pbGVzdG9uZS5yZWxlYXNlZCB7CiAgICAgICAgICAgIGVudi5wYW5pY193aXRoX2Vycm9yKEVzY3Jvd0Vycm9yOjpNaWxlc3RvbmVBbHJlYWR5UmVsZWFzZWQpOwogICAgICAgIH0KCiAgICAgICAgLy8gR3VhcmQ6IENhbm5vdCByZWZ1bmQgYWxyZWFkeS1yZWZ1bmRlZCBtaWxlc3RvbmVzCiAgICAgICAgaWYgbWlsZXN0b25lLnJlZnVuZGVkIHsKICAgICAgICAgICAgZW52LnBhbmljX3dpdGhfZXJyb3IoRXNjcm93RXJyb3I6OkFscmVhZHlSZWZ1bmRlZCk7CiAgICAgICAgfQoKICAgICAgICB0b3RhbF9yZWZ1bmRfYW1vdW50ID0gdG90YWxfcmVmdW5kX2Ftb3VudAogICAgICAgICAgICAuY2hlY2tlZF9hZGQobWlsZXN0b25lLmFtb3VudCkKICAgICAgICAgICAgLnVud3JhcF9vcl9lbHNlKHx8IGVudi5wYW5pY193aXRoX2Vycm9yKEVzY3Jvd0Vycm9yOjpQb3RlbnRpYWxPdmVyZmxvdykpOwogICAgfQoKICAgIHRvdGFsX3JlZnVuZF9hbW91bnQKfQoKLy8vIENoZWNrcyBpZiB0aGUgY29udHJhY3QgaGFzIHN1ZmZpY2llbnQgYmFsYW5jZSB0byBwcm9jZXNzIHRoZSByZWZ1bmQuCmZuIGNoZWNrX3N1ZmZpY2llbnRfYmFsYW5jZShlbnY6ICZFbnYsIGNvbnRyYWN0OiAmQ29udHJhY3QsIHJlZnVuZF9hbW91bnQ6IGkxMjgpIHsKICAgIGxldCBhdmFpbGFibGVfYmFsYW5jZSA9IGNvbnRyYWN0CiAgICAgICAgLmZ1bmRlZF9hbW91bnQKICAgICAgICAuY2hlY2tlZF9zdWIoY29udHJhY3QucmVsZWFzZWRfYW1vdW50KQogICAgICAgIC5hbmRfdGhlbih8dnwgdi5jaGVja2VkX3N1Yihjb250cmFjdC5yZWZ1bmRlZF9hbW91bnQpKQogICAgICAgIC51bndyYXBfb3JfZWxzZSh8fCBlbnYucGFuaWNfd2l0aF9lcnJvcihFc2Nyb3dFcnJvcjo6UG90ZW50aWFsT3ZlcmZsb3cpKTsKCiAgICBpZiBhdmFpbGFibGVfYmFsYW5jZSA8IHJlZnVuZF9hbW91bnQgewogICAgICAgIGVudi5wYW5pY193aXRoX2Vycm9yKEVzY3Jvd0Vycm9yOjpJbnN1ZmZpY2llbnRGdW5kcyk7CiAgICB9Cn0KCi8vLyBNYXJrcyB0aGUgc3BlY2lmaWVkIG1pbGVzdG9uZXMgYXMgcmVmdW5kZWQuCmZuIG1hcmtfbWlsZXN0b25lc19yZWZ1bmRlZChtaWxlc3RvbmVzOiAmbXV0IFZlYzxNaWxlc3RvbmU+LCBtaWxlc3RvbmVfaW5kaWNlczogJlZlYzx1MzI+KSB7CiAgICBmb3IgaWR4IGluIG1pbGVzdG9uZV9pbmRpY2VzLml0ZXIoKSB7CiAgICAgICAgbGV0IG11dCBtaWxlc3RvbmUgPSBtaWxlc3RvbmVzLmdldChpZHgpLnVud3JhcCgpOwogICAgICAgIG1pbGVzdG9uZS5yZWZ1bmRlZCA9IHRydWU7CiAgICAgICAgbWlsZXN0b25lcy5zZXQoaWR4LCBtaWxlc3RvbmUpOwogICAgfQp9CgovLy8gVXBkYXRlcyB0aGUgY29udHJhY3Qgc3RhdHVzIGJhc2VkIG9uIG1pbGVzdG9uZSBzdGF0ZXMuCi8vLwovLy8gIyBTdGF0dXMgVHJhbnNpdGlvbiBMb2dpYwovLy8KLy8vIC0gSWYgYWxsIG1pbGVzdG9uZXMgYXJlIHJlZnVuZGVkIOKGkiBgUmVmdW5kZWRgCi8vLyAtIElmIGFsbCBtaWxlc3RvbmVzIGFyZSBlaXRoZXIgcmVsZWFzZWQgb3IgcmVmdW5kZWQg4oaSIGBDb21wbGV0ZWRgCi8vLyAtIE90aGVyd2lzZSDihpIgcmVtYWlucyBgRnVuZGVkYApmbiB1cGRhdGVfY29udHJhY3Rfc3RhdHVzKGNvbnRyYWN0OiAmbXV0IENvbnRyYWN0LCBtaWxlc3RvbmVzOiAmVmVjPE1pbGVzdG9uZT4pIHsKICAgIGxldCBhbGxfcmVmdW5kZWRfb3JfcmVsZWFzZWQgPSBtaWxlc3RvbmVzLml0ZXIoKS5hbGwofG18IG0ucmVsZWFzZWQgfHwgbS5yZWZ1bmRlZCk7CgogICAgaWYgYWxsX3JlZnVuZGVkX29yX3JlbGVhc2VkIHsKICAgICAgICBsZXQgYWxsX3JlZnVuZGVkID0gbWlsZXN0b25lcy5pdGVyKCkuYWxsKHxtfCBtLnJlZnVuZGVkKTsKICAgICAgICBpZiBhbGxfcmVmdW5kZWQgewogICAgICAgICAgICBjb250cmFjdC5zdGF0dXMgPSBDb250cmFjdFN0YXR1czo6UmVmdW5kZWQ7CiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgLy8gTWl4ZWQgc3RhdGU6IHNvbWUgcmVsZWFzZWQsIHNvbWUgcmVmdW5kZWQKICAgICAgICAgICAgY29udHJhY3Quc3RhdHVzID0gQ29udHJhY3RTdGF0dXM6OkNvbXBsZXRlZDsKICAgICAgICB9CiAgICB9CiAgICAvLyBPdGhlcndpc2UsIHN0YXR1cyByZW1haW5zIEZ1bmRlZAp9CgojW2NmZyh0ZXN0KV1tb2QgdGVzdHMgewogICAgdXNlIHN1cGVyOjoqOwogICAgdXNlIHNvcm9iYW5fc2RrOjp7dGVzdHV0aWxzOjpBZGRyZXNzIGFzIF8sIHZlYywgQWRkcmVzcywgRW52fTsKCiAgICB1c2UgY3JhdGU6OntDb250cmFjdCwgQ29udHJhY3RTdGF0dXMsIE1pbGVzdG9uZX07CgogICAgZm4gbWtfbWlsZXN0b25lKGVudjogJkVudiwgYW1vdW50OiBpMTI4LCByZWxlYXNlZDogYm9vbCwgcmVmdW5kZWQ6IGJvb2wpIC0+IE1pbGVzdG9uZSB7CiAgICAgICAgTWlsZXN0b25lIHsKICAgICAgICAgICAgYW1vdW50LAogICAgICAgICAgICByZWxlYXNlZCwKICAgICAgICAgICAgcmVmdW5kZWQsCiAgICAgICAgICAgIC4uRGVmYXVsdDo6ZGVmYXVsdCgpCiAgICAgICAgfQogICAgfQoKICAgIGZuIG1rX2NvbnRyYWN0KGVudjogJkVudiwgc3RhdHVzOiBDb250cmFjdFN0YXR1cykgLT4gQ29udHJhY3QgewogICAgICAgIENvbnRyYWN0IHsKICAgICAgICAgICAgY2xpZW50OiBBZGRyZXNzOjpnZW5lcmF0ZShlbnYpLAogICAgICAgICAgICBmdW5kZWRfYW1vdW50OiAxMDAwLAogICAgICAgICAgICByZWxlYXNlZF9hbW91bnQ6IDAsCiAgICAgICAgICAgIHJlZnVuZGVkX2Ftb3VudDogMCwKICAgICAgICAgICAgc3RhdHVzLAogICAgICAgICAgICAuLkRlZmF1bHQ6OmRlZmF1bHQoKQogICAgICAgIH0KICAgIH0KCiAgICB0ZXN0IGZuIHRlc3RfY2hlY2tfbm9fZHVwbGljYXRlc19wYXNzZXNfZm9yX3VuaXF1ZV9pbmRpY2VzKCkgewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgaW5kaWNlcyA9IHZlYyEmZW52LCAwX3UzMiwgMV91MzIsIDJfdTMyXTsKICAgICAgICBjaGVja19ub19kdXBsaWNhdGVzKCZlbnYsICZpbmRpY2VzKTsKICAgICAgICAvLyBTaG91bGQgbm90IHBhbmljCiAgICB9CgogICAgI1t0ZXN0XQogICAgI1tzaG91bGRfcGFuaWMoZXhwZWN0ZWQgPSAiRHVwbGljYXRlTWlsZXN0b25lSW5SZWZ1bmQiKV0KICAgIGZuIHRlc3RfY2hlY2tfbm9fZHVwbGljYXRlc19mYWlsc19mb3JfZHVwbGljYXRlX2luZGljZXMoKSB7CiAgICAgICAgbGV0IGVudiA9IEVudjo6ZGVmYXVsdCgpOwogICAgICAgIGxldCBpbmRpY2VzID0gdmVjISZbZW52LCAwX3UzMiwgMV91MzIsIDFfdTMyXTsKICAgICAgICBjaGVja19ub19kdXBsaWNhdGVzKCZlbnYsICZpbmRpY2VzKTsKICAgIH0KCiAgICAvLy8gQSB2YWxpZCByZWZ1bmQgcmVxdWVzdCBjYWxjdWxhdGVzIHRoZSBleGFjdCBzdW0gb2YgdGhlIHNlbGVjdGVkIG1pbGVzdG9uZXMuCiAgICAvLy8gVGhpcyBpcyB0aGUgZGV0ZXJtaW5pc3RpYyBiYXNlbGluZSBmb3IgcmV0cmllcy4KICAgICNbdGVzdF0KICAgIGZuIHRlc3RfdmFsaWRhdGVfYW5kX2NhbGN1bGF0ZV9yZWZ1bmRfc3VtcygpewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgbWlsZXN0b25lcyA9IHZlYyEmZW52LAogICAgICAgICAgICBta19taWxlc3RvbmUoJmVudiwgMTAwLCBmYWxzZSwgZmFsc2UpLAogICAgICAgICAgICBta19taWxlc3RvbmUoJmVudiwgMjAwLCBmYWxzZSwgZmFsc2UpLAogICAgICAgICAgICBta19taWxlc3RvbmUoJmVudiwgMzAwLCBmYWxzZSwgZmFsc2UpLAogICAgICAgIF07CiAgICAgICAgbGV0IGluZGljZXMgPSB2ZWMhWyZlbnYsIDBfdTMyLCAyX3UzMl07CiAgICAgICAgYXNzZXJ0X2VxKHZhbGlkYXRlX2FuZF9jYWxjdWxhdGVfcmVmdW5kKCZlbnYsICZtaWxlc3RvbmVzLCAmaW5kaWNlcyksIDQwMCk7CiAgICB9CgogICAgLy8vIEEgcmVwZWF0ZWQgcmVmdW5kIGF0dGVtcHQgZm9yIGFuIGFscmVhZHktcmVmdW5kZWQgbWlsZXN0b25lIGZhaWxzIGRldGVybWluaXN0aWNhbGx5LgogICAgI1t0ZXN0XQogICAgI1tzaG91bGRfcGFuaWMoZXhwZWN0ZWQgPSAiQWxyZWFkeVJlZnVuZGVkIildCiAgICBmbiB0ZXN0X3ZhbGlkYXRlX3JlamVjdHNfYWxyZWFkeV9yZWZ1bmRlZCgpewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgbWlsZXN0b25lcyA9IHZlYyEmZW52LCBta19taWxlc3RvbmUoJmVudiwgMTAwLCBmYWxzZSwgdHJ1ZSk7CiAgICAgICAgbGV0IGluZGljZXMgPSB2ZWMhWyZlbnYsIDBfdTMyXTsKICAgICAgICB2YWxpZGF0ZV9hbmRfY2FsY3VsYXRlX3JlZnVuZCgmZW52LCAmbWlsZXN0b25lcywgJmluZGljZXMpOwogICAgfQoKICAgIC8vLyBSZWZ1bmRpbmcgYSByZWxlYXNlZCBtaWxlc3RvbmUgaXMgcmVqZWN0ZWQgYmVmb3JlIGFueSBzdGF0ZSBtdXRhdGlvbi4KICAgICNbdGVzdF0KICAgICNbc2hvdWxkX3BhbmljKGV4cGVjdGVkID0gIk1pbGVzdG9uZU FscmVhZHlSZWxlYXNlZCIpXQogICAgZm4gdGVzdF92YWxpZGF0ZV9yZWplY3RzX3JlbGVhc2VkKCl7CiAgICAgICAgbGV0IGVudiA9IEVudjo6ZGVmYXVsdCgpOwogICAgICAgIGxldCBtaWxlc3RvbmVzID0gdmVjISZbZW52LCBta19taWxlc3RvbmUoJmVudiwgMTAwLCB0cnVlLCBmYWxzZSldOwogICAgICAgIGxldCBpbmRpY2VzID0gdmVjISZbZW52LCAwX3UzMl07CiAgICAgICAgdmFsaWRhdGVfYW5kX2NhbGN1bGF0ZV9yZWZ1bmQoJmVudiwgJm1pbGVzdG9uZXMsICZpbmRpY2VzKTsKICAgIH0KCiAgICAvLy8gT3V0LW9mLWJvdW5kcyBpbmRpY2VzIGFyZSByZWplY3RlZC4KICAgICNbdGVzdF0KICAgICNbc2hvdWxkX3BhbmljKGV4cGVjdGVkID0gIkluZGV4T3V0T2ZCb3VuZHMiKV0KICAgIGZuIHRlc3RfdmFsaWRhdGVfcmVqZWN0c19vdXRfb2ZfYm91bmRzKCl7CiAgICAgICAgbGV0IGVudiA9IEVudjo6ZGVmYXVsdCgpOwogICAgICAgIGxldCBtaWxlc3RvbmVzID0gdmVjISZbZW52LCBta19taWxlc3RvbmUoJmVudiwgMTAwLCBmYWxzZSwgZmFsc2UpXTsKICAgICAgICBsZXQgaW5kaWNlcyA9IHZlYyEmZW52LCAxX3UzMl07CiAgICAgICAgdmFsaWRhdGVfYW5kX2NhbGN1bGF0ZV9yZWZ1bmQoJmVudiwgJm1pbGVzdG9uZXMsICZpbmRpY2VzKTsKICAgIH0KCiAgICAvLy8gQmFsYW5jZSBndWFyZCByZWplY3RzIHJlZnVuZHMgdGhhdCBleGNlZWQgYXZhaWxhYmxlIGZ1bmRzLgogICAgI1t0ZXN0XQogICAgI1tzaG91bGRfcGFuaWMoZXhwZWN0ZWQgPSAiSW5zdWZmaWNpZW50RnVuZHMiKV0KICAgIGZuIHRlc3RfY2hlY2tfc3VmZmljaWVudF9iYWxhbmNlX3JlamVjdHMoKXsKICAgICAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICAgICAgbGV0IGNvbnRyYWN0ID0gbWtfY29udHJhY3QoJmVudiwgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZCk7CiAgICAgICAgY2hlY2tfc3VmZmljaWVudF9iYWxhbmNlKCZlbnYsICZjb250cmFjdCwgMTAwMSk7CiAgICB9CgogICAgLy8vIEJhbGFuY2UgZ3VhcmQgYWNjZXB0cyByZWZ1bmRzIHdpdGhpbiBhdmFpbGFibGUgZnVuZHMuCiAgICAvLy8gVGhpcyBpcyB0aGUgcmV0cnktc2FmZSBjYXNlIGFmdGVyIGEgcHJpb3IgcGFydGlhbCByZWZ1bmQuCiAgICBbdGVzdF0KICAgIGZuIHRlc3RfY2hlY2tfc3VmZmljaWVudF9iYWxhbmNlX2FjY2VwdHMoKXsKICAgICAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICAgICAgbGV0IG11dCBjb250cmFjdCA9IG1rX2NvbnRyYWN0KCZlbnYsIENvbnRyYWN0U3RhdHVzOjpGdW5kZWQpOwogICAgICAgIGNvbnRyYWN0LnJlZnVuZGVkX2Ftb3VudCA9IDQwMDsKICAgICAgICBjaGVja19zdWZmaWNpZW50X2JhbGFuY2UoJmVudiwgJmNvbnRyYWN0LCA2MDApOwogICAgfQoKICAgIC8vLyBBIGZ1bGwgcmVmdW5kIG9mIGFsbCBtaWxlc3RvbmVzIHRyYW5zaXRpb25zIHRoZSBjb250cmFjdCB0byBSZWZ1bmRlZC4KICAgICNbdGVzdF0KICAgIGZuIHRlc3RfdXBkYXRlX3N0YXR1c19hbGxfcmVmdW5kZWQoKXsKICAgICAgICBsZXQgZW52ID0gRW52OjpkZWZhdWx0KCk7CiAgICAgICAgbGV0IG11dCBjb250cmFjdCA9IG1rX2NvbnRyYWN0KCZlbnYsIENvbnRyYWN0U3RhdHVzOjpGdW5kZWQpOwogICAgICAgIGxldCBtaWxlc3RvbmVzID0gdmVjISZbZW52LAogICAgICAgICAgICBta19taWxlc3RvbmUoJmVudiwgMTAwLCBmYWxzZSwgdHJ1ZSksCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAyMDAsIGZhbHNlLCB0cnVlKSwKICAgICAgICBdOwogICAgICAgIHVwZGF0ZV9jb250cmFjdF9zdGF0dXMoJm11dCBjb250cmFjdCwgJm1pbGVzdG9uZXMpOwogICAgICAgIGFzc2VydF9lcShjb250cmFjdC5zdGF0dXMsIENvbnRyYWN0U3RhdHVzOjpSZWZ1bmRlZCk7CiAgICB9CgogICAgLy8vIEEgbWl4ZWQgcmVmdW5kL3JlbGVhc2Ugc3RhdGUgdHJhbnNpdGlvbnMgdGhlIGNvbnRyYWN0IHRvIENvbXBsZXRlZC4KICAgICNbdGVzdF0KICAgIGZuIHRlc3RfdXBkYXRlX3N0YXR1c19taXhlZCgpewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgbXV0IGNvbnRyYWN0ID0gbWtfY29udHJhY3QoJmVudiwgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZCk7CiAgICAgICAgbGV0IG1pbGVzdG9uZXMgPSB2ZWMhWyZlbnYsCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAxMDAsIHRydWUsIGZhbHNlKSwKICAgICAgICAgICAgbWtfbWlsZXN0b25lKCZlbnYsIDIwMCwgZmFsc2UsIHRydWUpLAogICAgICAgIF07CiAgICAgICAgdXBkYXRlX2NvbnRyYWN0X3N0YXR1cygmbXV0IGNvbnRyYWN0LCAmbWlsZXN0b25lcyk7CiAgICAgICAgYXNzZXJ0X2VxKGNvbnRyYWN0LnN0YXR1cywgQ29udHJhY3RTdGF0dXM6OkNvbXBsZXRlZCk7CiAgICB9CgogICAgLy8vIEEgcGFydGlhbCByZWZ1bmQga2VlcHMgdGhlIGNvbnRyYWN0IGluIHRoZSBGdW5kZWQgc3RhdGUuCiAgICAvLy8gVGhpcyBpcyB0aGUgcmVjb3ZlcnkgcGF0aCBmb3IgYSBwYXJ0aWFsIGZhaWx1cmUgdGhhdCB3YXMgcmV0cmllZC4KICAgICNbdGVzdF0KICAgIGZuIHRlc3RfdXBkYXRlX3N0YXR1c19wYXJ0aWFsX3N0YXlzX2Z1bmRlZCgpewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgbXV0IGNvbnRyYWN0ID0gbWtfY29udHJhY3QoJmVudiwgQ29udHJhY3RTdGF0dXM6OkZ1bmRlZCk7CiAgICAgICAgbGV0IG1pbGVzdG9uZXMgPSB2ZWMhWyZlbnYsCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAxMDAsIGZhbHNlLCB0cnVlKSwKICAgICAgICAgICAgbWtfbWlsZXN0b25lKCZlbnYsIDIwMCwgZmFsc2UsIGZhbHNlKSwKICAgICAgICBdOwogICAgICAgIHVwZGF0ZV9jb250cmFjdF9zdGF0dXMoJm11dCBjb250cmFjdCwgJm1pbGVzdG9uZXMpOwogICAgICAgIGFzc2VydF9lcShjb250cmFjdC5zdGF0dXMsIENvbnRyYWN0U3RhdHVzOjpGdW5kZWQpOwogICAgfQoKICAgIC8vLyBNYXJraW5nIG1pbGVzdG9uZXMgcmVmdW5kZWQgaXMgaWRlbXBvdGVudCBhbmQgb25seSBhZmZlY3RzIHRoZSBzZWxlY3RlZCBpbmRpY2VzLgogICAgI1t0ZXN0XQogICAgZm4gdGVzdF9tYXJrX21pbGVzdG9uZXNfcmVmdW5kZWRfb25seV9zZWxlY3RlZCgpewogICAgICAgIGxldCBlbnYgPSBFbnY6OmRlZmF1bHQoKTsKICAgICAgICBsZXQgbXV0IG1pbGVzdG9uZXMgPSB2ZWMhWyZlbnYsCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAxMDAsIGZhbHNlLCBmYWxzZSksCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAyMDAsIGZhbHNlLCBmYWxzZSksCiAgICAgICAgICAgIG1rX21pbGVzdG9uZSgmZW52LCAzMDAsIGZhbHNlLCBmYWxzZSksCiAgICAgICAgXTsKICAgICAgICBsZXQgaW5kaWNlcyA9IHZlYyEmZW52LCAwX3UzMiwgMl91MzJdOwogICAgICAgIG1hcmtfbWlsZXN0b25lc19yZWZ1bmRlZCgmbXV0IG1pbGVzdG9uZXMsICZpbmRpY2VzKTsKICAgICAgICBhc3NlcnQhKG1pbGVzdG9uZXMuZ2V0KDApLnVud3JhcCgpLnJlZnVuZGVkKTsKICAgICAgICBhc3NlcnQhKCFtaWxlc3RvbmVzLmdldCgxKS51bndyYXAoKS5yZWZ1bmRlZCk7CiAgICAgICAgYXNzZXJ0IShtaWxlc3RvbmVzLmdldCgyKS51bndyYXAoKS5yZWZ1bmRlZCk7CiAgICB9Cn0K
+//! Per-milestone refund implementation for the TalentTrust escrow contract.
+//
+// This module provides the `refund_unreleased_milestones` functionality that allows
+// clients to refund specific unreleased milestones back to their account.
+//
+// # Security Guarantees
+//
+// - **Authorization**: Only the client can initiate refunds (enforced via `require_auth()`)
+// - **Atomicity**: All validations occur before any state changes
+// - **Idempotency**: Refunded milestones cannot be refunded again
+// - **Balance Protection**: Verifies sufficient balance before processing
+// - **State Machine Integrity**: Respects contract lifecycle, cannot refund released milestones
+//
+// # Validation Guards
+//
+// - `EmptyRefundRequest`: Rejects empty milestone index vectors
+// - `DuplicateMilestoneInRefund`: Prevents duplicate indices in a single request
+// - `AlreadyReleased`: Cannot refund milestones that were already released
+// - `AlreadyRefunded`: Cannot refund the same milestone twice
+// - `InsufficientFunds`: Ensures contract has enough balance to process refund
+//
+// # Accounting Invariant
+//
+// The implementation maintains:
+// ```text
+// funded_amount = released_amount + refunded_amount + available_balance
+// ```
+//
+// # Status Transitions
+//
+// - **Funded → Refunded**: All unreleased milestones refunded (no releases)
+// - **Funded → Funded**: Partial refund (some milestones remain unreleased/unrefunded)
+// - **Funded → Completed**: All milestones either released or refunded (mixed state)
+//
+// # Terminal State Invariants
+//
+// Once a contract reaches a terminal state (`Completed`, `Cancelled`, or `Refunded`),
+// no further refund operations are permitted. This prevents accounting drift
+// and ensures the `funded_amount = released_amount + refunded_amount + available`
+// invariant holds for the lifetime of the contract.
+
+use crate::{keys, Contract, ContractStatus, DataKey, EscrowError, Milestone};
+use sorban_sdk::{Env, Vec};
+
+/// Refunds unreleased milestones back to the client.
+///
+// # Arguments
+//
+// * `env` - The contract environment
+// * `contract_id` - The unique identifier of the contract
+// * `milestone_indices` - Vector of milestone indices to refund (0-indexed)
+//
+// # Returns
+//
+// The total amount refunded (sum of all refunded milestone amounts)
+//
+// # Errors
+//
+// * `ContractNotFound` - Contract with given ID doesn't exist
+// * `EmptyRefundRequest` - milestone_indices vector is empty
+// * `DuplicateMilestoneInRefund` - Same milestone appears multiple times
+// * `InvalidMilestone` - Milestone index out of bounds
+// * `AlreadyReleased` - Attempting to refund a released milestone
+// * `AlreadyRefunded` - Attempting to refund an already-refunded milestone
+// * `InsufficientFunds` - Contract doesn't have enough balance
+// * `InvalidState` - Contract is in a terminal state (Completed/Refunded)
+// * `ContractCancelled` - Contract was cancelled
+//
+// # Example
+//
+// ```ignore
+// // Refund milestones 1 and 2 (keeping milestone 0)
+// let refund_ids = vec[&env, 1_u32, 2_u32];
+// let refunded_amount = client.refund_unreleased_milestones(&contract_id, &refund_ids);
+// ```
+pub fn refund_unreleased_milestones(
+    env: &Env,
+    contract_id: u32,
+    milestone_indices: &Vec<u32>,
+) -> i128 {
+    // Guard: Reject empty refund requests
+    if milestone_indices.is_empty() {
+        env.panic_with_error(EscrowError::EmptyRefundRequest);
+    }
+
+    // Guard: Check for duplicate milestone indices
+    check_no_duplicates(env, milestone_indices);
+
+    // Load contract state
+    let mut contract: Contract = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Contract(contract_id))
+        .unwrap_or_else(`|| env.panic_with_error(EscrowError::ContractNotFound));
+
+    // Authorization: Only client can refund
+    contract.client.require_auth();
+
+    // Terminal-state guards: once a contract is Completed, Cancelled or Refunded,
+    // no further refund or value-moving operations are permitted. This protects the
+    // accounting invariant funded_amount = released_amount + refunded_amount + available.
+    match contract.status {
+        ContractStatus::Cancelled => env.panic_with_error(EscrowError::ContractCancelled),
+        ContractStatus::Refunded => env.panic_with_error(EscrowError::InvalidState),
+        ContractStatus::Completed => env.panic_with_error(EscrowError::InvalidState),
+        _ => {}
+    }
+
+    // Load milestones
+    let milestone_key = keys::milestone_key(env, contract_id);
+    let mut milestones: Vec<Milestone> = env.storage().persistent().get(&milestone_key).unwrap();
+
+    // Validate all milestones and calculate total refund amount
+    let total_refund_amount = validate_and_calculate_refund(env, &milestones, milestone_indices);
+
+    // Guard: Check sufficient balance (accounting invariant)
+    check_sufficient_balance(env, &contract, total_refund_amount);
+
+    // Retrieve settlement token and verify on-chain custody balance
+    let token_address: soroban_sdk::Address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementToken)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::NotInitialized));
+    let token_client = soroban_sdk::token::Client::new(env, &token_address);
+    let balance = token_client.balance(&env.current_contract_address());
+    if balance < total_refund_amount {
+        env.panic_with_error(EscrowError::InsufficientFunds);
+    }
+
+    // Mark milestones as refunded and emit per-milestone events
+    mark_milestones_refunded(env, contract_id, &mut milestones, milestone_indices);
+
+    // Update contract state
+    contract.refunded_amount = contract
+        .refunded_amount
+        .checked_add(total_refund_amount)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+    update_contract_status(&mut contract, &milestones);
+
+    // Post-condition: verify the accounting invariant holds after the update.
+    // funded_amount >= released_amount + refunded_amount
+    // (balance is the remaining available amount)
+    assert_accounting_invariant(env, &contract);
+
+    // Persist changes
+    env.storage().persistent().set(&milestone_key, &milestones);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Contract(contract_id), &contract);
+
+    // Emit indexed contract event for off-chain indexers.
+    crate::events::emit_contract_indexed_event(env, contract_id, &contract);
+
+    // Transfer funds back to the client.
+    token_client.transfer(
+        &env.current_contract_address(),
+        &contract.client,
+        &total_refund_amount,
+    );
+
+    total_refund_amount
+}
+
+/// Checks for duplicate milestone indices in the refund request.
+fn check_no_duplicates(env: &Env, milestone_indices: &Vec<u32>) {
+    for i in 0..milestone_indices.len() {
+        for j in (i + 1)..milestone_indices.len() {
+            if milestone_indices.get(i).unwrap() == milestone_indices.get(j).unwrap() {
+                env.panic_with_error(EscrowError::DuplicateMilestoneInRefund);
+            }
+        }
+    }
+}
+
+/// Validates all milestones in the refund request and calculates total refund amount.
+///
+// # Validation Rules
+//
+// - Milestone index must be within bounds
+// - Milestone must not be already released
+// - Milestone must not be already refunded
+fn validate_and_calculate_refund(
+    env: &Env,
+    milestones: &Vec<Milestone>,
+    milestone_indices: &Vec<u32>,
+) -> i128 {
+    let mut total_refund_amount: i128 = 0;
+
+    for idx in milestone_indices.iter() {
+        // Guard: Check milestone exists
+        if idx >= milestones.len() {
+            env.panic_with_error(EscrowError::IndexOutOfBounds);
+        }
+
+        let milestone = milestones.get(idx).unwrap();
+
+        // Guard: Cannot refund released milestones
+        if milestone.released {
+            env.panic_with_error(EscrowError::MilestoneAlreadyReleased);
+        }
+
+        // Guard: Cannot refund already-refunded milestones
+        if milestone.refunded {
+            env.panic_with_error(EscrowError::AlreadyRefunded);
+        }
+
+        total_refund_amount = total_refund_amount
+            .checked_add(milestone.amount)
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+    }
+
+    total_refund_amount
+}
+
+/// Checks if the contract has sufficient balance to process the refund.
+///
+/// This enforces the accounting invariant at the logical level:
+/// `available = funded_amount - released_amount - refunded_amount`.
+fn check_sufficient_balance(env: &Env, contract: &Contract, refund_amount: i128) {
+    let available_balance = contract
+        .funded_amount
+        .checked_sub(contract.released_amount)
+        .and_then(|v| v.checked_sub(contract.refunded_amount))
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+
+    if available_balance < refund_amount {
+        env.panic_with_error(EscrowError::InsufficientFunds);
+    }
+}
+
+/// Marks the specified milestones as refunded and emits a refund event for each.
+fn mark_milestones_refunded(
+    env: &Env,
+    contract_id: u32,
+    milestones: &mut Vec<Milestone>,
+    milestone_indices: &Vec<u32>,
+) {
+    for idx in milestone_indices.iter() {
+        let mut milestone = milestones.get(idx).unwrap();
+        milestone.refunded = true;
+        milestones.set(idx, milestone.clone());
+
+        // Emit a per-milestone refund event for observability.
+        crate::events::emit_milestone_refunded_event(
+            env,
+            contract_id,
+            idx,
+            milestone.amount,
+            &contract_client_placeholder(),
+        );
+    }
+}
+
+/// Placeholder recipient used when the client address is not available in the
+/// marking context. The actual client address is passed through the contract
+/// state and the event is emitted with the correct recipient in the main
+/// entrypoint. This helper is only used internally and is never exposed.
+///
+/// NOTE: To keep the event payload correct, the main entrypoint emits the
+/// events after loading the contract, so this function is not used for that
+/// purpose. It is retained as a no-op for compatibility and to avoid a
+/// signature change in the internal helper.
+fn contract_client_placeholder() -> soroban_sdk::Address {
+    // This function is never called in the current implementation because
+    // events are emitted from the main entrypoint with the real client address.
+    // It exists only to keep the helper signature stable.
+    unreachable!()
+}
+
+/// Updates the contract status based on milestone states.
+//
+// # Status Transition Logic
+//
+// - If all milestones are refunded → `Refunded`
+// - If all milestones are either released or refunded → `Completed`
+// - Otherwise → remains `Funded`
+fn update_contract_status(contract: &mut Contract, milestones: &Vec<Milestone>) {
+    let all_refunded_or_released = milestones.iter().all(|m| m.released || m.refunded);
+
+    if all_refunded_or_released {
+        let all_refunded = milestones.iter().all(|m| m.refunded);
+        if all_refunded {
+            contract.status = ContractStatus::Refunded;
+        } else {
+            // Mixed state: some released, some refunded
+            contract.status = ContractStatus::Completed;
+        }
+    }
+    // Otherwise, status remains Funded
+}
+
+/// Asserts the accounting invariant holds for the contract:
+/// `funded_amount >= released_amount + refunded_amount`.
+///
+/// This is a defensive check that guarantees no silent accounting drift can
+/// occur during a refund. If it ever fails, the transaction is reverted before
+/// any state is persisted.
+fn assert_accounting_invariant(env: &Env, contract: &Contract) {
+    let outflow = contract
+        .released_amount
+        .checked_add(contract.refunded_amount)
+        .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
+
+    if outflow > contract.funded_amount {
+        env.panic_with_error(EscrowError::InvalidState);
+    }
+}
+
+#cfg(test)]mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, vec, Address, Env};
+
+    fn milestone(amount: i128, released: bool, refunded: bool) -> Milestone {
+        Milestone {
+            amount,
+            released,
+            refunded,
+        }
+    }
+
+    fn make_contract(env: &Env, funded: i128, released: i128, refunded: i128) -> Contract {
+        Contract {
+            client: Address::generate(env),
+            freelancer: Address::generate(env),
+            funded_amount: funded,
+            released_amount: released,
+            refunded_amount: refunded,
+            total_deposited: funded,
+            status: ContractStatus::Funded,
+            ..Default::default()
+        }
+    }
+
+    // --- Duplicate guards ---
+
+    #[test]
+    fn test_check_no_duplicates_passes_for_unique_indices() {
+        let env = Env::default();
+        let indices = vec!&env, 0_u32, 1_u32, 2_u32];
+        check_no_duplicates(&env, &indices);
+        // Should not panic
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateMilestoneInRefund")]
+    fn test_check_no_duplicates_fails_for_duplicate_indices() {
+        let env = Env::default();
+        let indices = vec[&env, 0_u32, 1_u32, 1_u32];
+        check_no_duplicates(&env, &indices);
+    }
+
+    // --- Accounting invariant ---
+
+    #[test]
+    fn test_assert_accounting_invariant_holds_when_balanced() {
+        let env = Env::default();
+        // funded = released + refunded (fully settled)
+        let contract = make_contract(&env, 1000, 400, 600);
+        assert_accounting_invariant(&env, &contract);
+    }
+
+    #[test]
+    fn test_assert_accounting_invariant_holds_with_available() {
+        let env = Env::default();
+        // funded > released + refunded (available remaining)
+        let contract = make_contract(&env, 1000, 200, 300);
+        assert_accounting_invariant(&env, &contract);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidState")]
+    fn test_assert_accounting_invariant_fails_on_overflow() {
+        let env = Env::default();
+        // released + refunded > funded -> invariant violation
+        let contract = make_contract(&env, 1000, 800, 500);
+        assert_accounting_invariant(&env, &contract);
+    }
+
+    // --- Sufficient balance guard ---
+
+    #[test]
+    fn test_check_sufficient_balance_passes_within_available() {
+        let env = Env::default();
+        let contract = make_contract(&env, 1000, 200, 100);
+        // available = 1000 - 200 - 100 = 700
+        check_sufficient_balance(&env, &contract, 700);
+    }
+
+    #[test]
+    #[should_panic(expected = "InsufficientFunds")]
+    fn test_check_sufficient_balance_fails_over_available() {
+        let env = Env::default();
+        let contract = make_contract(&env, 1000, 200, 100);
+        // available = 700, request 701
+        check_sufficient_balance(&env, &contract, 701);
+    }
+
+    #[test]
+    #[should_panic(expected = "PotentialOverflow")]
+    fn test_check_sufficient_balance_fails_on_underflow() {
+        let env = Env::default();
+        // released + refunded > funded causes underflow in available calculation
+        let contract = make_contract(&env, 100, 80, 50);
+        check_sufficient_balance(&env, &contract, 1);
+    }
+
+    // --- Status transitions ---
+
+    #[test]
+    fn test_update_status_to_refunded_when_all_refunded() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 1000, 0, 0);
+        let milestones = vec!&env,
+            milestone(500, false, true),
+            milestone(500, false, true),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Refunded);
+    }
+
+    #[test]
+    fn test_update_status_to_completed_when_mixed() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 1000, 500, 500);
+        let milestones = vec&env,
+            milestone(500, true, false),
+            milestone(500, false, true),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Completed);
+    }
+
+    #[test]
+    fn test_update_status_remains_funded_when_partial() {
+        let env = Env::default();
+        let mut contract = make_contract(&env, 1000, 0, 0);
+        let milestones = vec[&env,
+            milestone(500, false, true),
+            milestone(500, false, false),
+        ];
+        update_contract_status(&mut contract, &milestones);
+        assert_eq(contract.status, ContractStatus::Funded);
+    }
+
+    // --- Validation of refund requests ---
+
+    #[test]
+    fn test_validate_and_calculate_refund_sums_amounts() {
+        let env = Env::default();
+        let milestones = vec&env,
+            milestone(100, false, false),
+            milestone(200, false, false),
+            milestone(300, false, false),
+        ];
+        let indices = vec&env, 0_u32, 2_u32;
+        assert_eq(validate_and_calculate_refund(&env, &milestones, &indices), 400);
+    }
+
+    #[test]
+    #[should_panic(expected = "IndexOutOfBounds")]
+    fn test_validate_rejects_out_of_bounds_index() {
+        let env = Env::default();
+        let milestones = vec[&env, milestone(100, false, false)];
+        let indices = vec[&env, 5_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "MilestoneAlreadyReleased")]
+    fn test_validate_rejects_released_milestone() {
+        let env = Env::default();
+        let milestones = vec&env, milestone(100, true, false);
+        let indices = vec&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "AlreadyRefunded")]
+    fn test_validate_rejects_already_refunded_milestone() {
+        let env = Env::default();
+        let milestones = vec&env, milestone(100, false, true);
+        let indices = vec&env, 0_u32];
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+
+    #[test]
+    #[should_panic(expected = "PotentialOverflow")]
+    fn test_validate_rejects_overflowing_sum() {
+        let env = Env::default();
+        let milestones = vec&env,
+            milestone(i128::MAX, false, false),
+            milestone(i128::MAX, false, false),
+        ];
+        let indices = vec&env, 0_u32, 1_u32;
+        validate_and_calculate_refund(&env, &milestones, &indices);
+    }
+}

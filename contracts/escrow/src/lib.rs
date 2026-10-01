@@ -1611,6 +1611,7 @@ impl Escrow {
     // * `InsufficientFunds` - If contract doesn't have enough balance to refund
     // * `AlreadyFinalized` - If a finalization record already exists for this contract
     // * `InvalidState` - If contract status is not Created, Funded, or Disputed
+    // * `AccountingInvariantViolated` - If post-mutation accounting would exceed funded_amount
     pub fn refund_unreleased_milestones(
         env: Env,
         contract_id: u32,
@@ -1672,6 +1673,16 @@ impl Escrow {
 
         contract.client.require_auth();
 
+        // Load accumulated protocol fees once. These fees are commingled with
+        // the escrow's SAC balance and must be excluded from the refundable
+        // pool, matching the accounting used by `release_milestone` and
+        // `get_remaining_balance`.
+        let accumulated_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AccumulatedProtocolFees)
+            .unwrap_or(0);
+
         let mut milestones: Vec<Milestone> = ttl::load_milestones(&env, contract_id);
 
         if let Some(versions) = &expected_versions {
@@ -1711,10 +1722,11 @@ impl Escrow {
             }
 
             // SECURITY: Check timeout refund conditions - milestone must be overdue if deadline is set
-            if milestone.deadline.is_some() {
-                // Milestone has a deadline - check if it's overdue
-                if !Self::is_milestone_overdue(env.clone(), contract_id, idx) {
-                    // Deadline set but milestone not yet overdue
+            if let Some(deadline) = milestone.deadline {
+                // Milestone has a deadline - require it to be strictly past.
+                // Boundary: at exactly the deadline (now == deadline) the
+                // milestone is NOT yet overdue, matching `is_milestone_overdue`.
+                if now_seconds(&env) <= deadline {
                     env.panic_with_error(Error::MilestoneNotOverdue);
                 }
             }
@@ -1725,11 +1737,14 @@ impl Escrow {
                 .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         }
 
-        // Check if there's enough balance
+        // Check if there's enough balance. Accumulated protocol fees are held
+        // back from the refundable pool so a refund can never drain fees that
+        // belong to the protocol treasury.
         let available_balance = contract
             .funded_amount
             .checked_sub(contract.released_amount)
             .and_then(|remaining| remaining.checked_sub(contract.refunded_amount))
+            .and_then(|remaining| remaining.checked_sub(accumulated_fees))
             .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         if available_balance < total_refund_amount {
             env.panic_with_error(EscrowError::InsufficientFunds);
@@ -1771,17 +1786,15 @@ impl Escrow {
             .checked_add(total_refund_amount)
             .unwrap_or_else(|| env.panic_with_error(Error::InsufficientFunds));
 
-        // Enforce the core accounting invariant after mutating refunded_amount:
-        // released + refunded + accumulated_protocol_fees must never exceed
-        // funded_amount. This mirrors the check in `release_milestone` and
-        // `release_milestone_batch` so that no code path can silently violate
-        // the custody accounting invariant.
-        let accumulated_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AccumulatedProtocolFees)
-            .unwrap_or(0);
-        let invariant_sum = contract.released_amount + contract.refunded_amount + accumulated_fees;
+        // Enforce the core accounting invariant: released + refunded +
+        // accumulated protocol fees must never exceed the amount that was
+        // actually funded into escrow. This mirrors the guard in
+        // `release_milestone` and prevents silent state corruption.
+        let invariant_sum = contract
+            .released_amount
+            .checked_add(contract.refunded_amount)
+            .and_then(|sum| sum.checked_add(accumulated_fees))
+            .unwrap_or_else(|| env.panic_with_error(EscrowError::PotentialOverflow));
         if invariant_sum > contract.funded_amount {
             env.panic_with_error(EscrowError::AccountingInvariantViolated);
         }
