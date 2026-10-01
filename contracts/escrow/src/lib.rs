@@ -153,14 +153,12 @@ pub use types::Error as EscrowError;
 impl Escrow {
     // Get the settlement token address from the canonical `DataKey` binding.
     pub(crate) fn read_settlement_token(env: &Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::SettlementToken)
+        settlement::read_settlement_token(env)
     }
 
-    // Persist the settlement token address under the canonical `DataKey` binding.
+    // Commit the token through the canonical write-once settlement boundary.
     pub(crate) fn write_settlement_token(env: &Env, token: &Address) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::SettlementToken, token);
+        settlement::write_settlement_token(env, token);
     }
 
     // Returns the effective max batch settlement, falling back to the default.
@@ -286,16 +284,17 @@ impl Escrow {
         let token_client = token::Client::new(&env, &token);
         let _probe: i128 = token_client.balance(&env.current_contract_address());
 
-        Self::write_settlement_token(&env, &token);
-
         // Capture and persist the token's decimal count for scale validation.
-        // This is a read-only probe (decimals() is a pure getter) — no funds
-        // are moved and no re-entrancy risk exists.  Stored under
-        // DataKey::TokenScale for use by create_contract and the read views.
+        // Run this fallible dependency probe before committing the token
+        // binding. Soroban would roll both writes back on a later trap, but
+        // ordering all probes before the canonical commit keeps the recovery
+        // boundary explicit and independently reviewable.
         token_scale::capture_and_store_token_scale(&env, &token);
 
-        // Emit after the binding write succeeds so indexers can track the bound
-        // asset. Consistent topic naming with `init` / `protocol_fee_bps` events.
+        Self::write_settlement_token(&env, &token);
+
+        // Emit only after the complete binding state (token and scale) commits
+        // so observers never see a success event for a partial transition.
         env.events().publish(
             (Symbol::new(&env, "settlement_token_bound"),),
             (admin, token, env.ledger().timestamp()),
