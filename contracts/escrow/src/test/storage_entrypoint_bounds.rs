@@ -18,6 +18,7 @@
 //!   - `rollback_dispute`           — contract_id != 0
 //!   - `deposit_funds`              — amount > 0
 //!   - `create_contract`            — milestone count in [1, MAX_MILESTONES]
+//!   - `set_governed_params`        — fee_bps in [0, MAX_FEE_BPS]
 
 #[allow(deprecated)]
 use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, vec, Address, Env};
@@ -166,6 +167,7 @@ fn set_governed_params_rejects_i128_min() {
     }
 }
 
+/// fee_bps = 0 must be accepted (lower boundary).
 /// fee_bps > MAX_FEE_BPS must still be rejected (existing validation preserved).
 #[test]
 fn set_governed_params_rejects_fee_over_max() {
@@ -309,6 +311,7 @@ fn set_reputation_config_rejects_max_below_min() {
     }
 }
 
+/// max_rating = 10 (upper boundary) must be accepted.
 /// max_rating > 10 must be rejected.
 #[test]
 fn set_reputation_config_rejects_max_rating_over_10() {
@@ -396,7 +399,11 @@ fn set_protocol_fee_bps_rejects_u32_max() {
     }
 }
 
-// ── contract_id = 0 rejection for migration entrypoints ───────────────────────
+// ── contract_id = 0 rejection for migration / rollback entrypoints ───────────
+//
+// These entrypoints call `storage::validate_contract_id_bounds`, the strict
+// entrypoint-preamble guard, so the reserved id is rejected as invalid *input*
+// with `InvalidContractId` — identical to every other mutating entrypoint.
 
 /// propose_client_migration with contract_id = 0 must be rejected.
 #[test]
@@ -418,10 +425,10 @@ fn propose_client_migration_rejects_zero_contract_id() {
     let result = escrow.try_propose_client_migration(&0_u32, &c, &new_client);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 
@@ -435,10 +442,10 @@ fn accept_client_migration_rejects_zero_contract_id() {
     let result = escrow.try_accept_client_migration(&0_u32, &new_client);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 
@@ -451,10 +458,10 @@ fn rollback_dispute_rejects_zero_contract_id() {
     let result = escrow.try_rollback_dispute(&0_u32);
     match result {
         Err(Ok(e)) => {
-            let want: soroban_sdk::Error = EscrowError::ContractNotFound.into();
-            assert_eq!(e, want, "expected ContractNotFound for contract_id=0");
+            let want: soroban_sdk::Error = EscrowError::InvalidContractId.into();
+            assert_eq!(e, want, "expected InvalidContractId for contract_id=0");
         }
-        other => panic!("expected ContractNotFound, got {:?}", other),
+        other => panic!("expected InvalidContractId, got {:?}", other),
     }
 }
 
@@ -611,3 +618,4 @@ fn regression_set_reputation_config_multiple_updates() {
     assert_eq!(cfg.max_rating, 10);
     assert_eq!(cfg.max_comment_bytes, 1_000);
 }
+

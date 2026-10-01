@@ -16,8 +16,9 @@
 use super::assert_contract_error;
 use soroban_sdk::{
     testutils::{Address as _, Events},
-    Address, Env, Symbol, TryFromVal,
+    Address, Env, Symbol,
 };
+use soroban_sdk::TryFromVal;
 
 use crate::{
     Error, Escrow, EscrowClient, DEFAULT_STORAGE_LIMIT, MAX_STORAGE_LIMIT, MIN_STORAGE_LIMIT,
