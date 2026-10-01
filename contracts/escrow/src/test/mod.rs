@@ -1,6 +1,6 @@
-#![cfg(test)]
 #![allow(dead_code)]
 
+mod approvals;
 pub use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, Vec};
 
@@ -11,6 +11,7 @@ use crate::{
 // --- Submodules ---
 mod access_control;
 mod admin_auth_helper;
+mod approval_compatibility;
 mod approval_expiry;
 mod budget;
 mod cancel_contract;
@@ -28,6 +29,7 @@ mod emergency_controls;
 mod fuzz_milestone_deadline;
 mod input_sanitization_amounts;
 mod input_sanitization_identities;
+mod issue_1430_concurrency;
 mod milestone_transitions_integration;
 mod protocol_fees;
 // mod mainnet_readiness;
@@ -45,12 +47,15 @@ mod security;
 mod test_pause_scope;
 // Temporarily unwired: DisputeInfo / DisputeSummary field mismatch on broken main.
 // mod settlement_overflow;
+mod storage_validation;
 mod event_assertions;
 mod lifecycle_invariants;
+mod finalize_invariants;
 mod governance_proposal;
 mod simulate_create_contract;
 mod simulate_deposit;
 mod simulate_release;
+mod simulate_validation_boundaries;
 mod token_scale;
 mod ttl_tests;
 
@@ -59,6 +64,29 @@ mod ttl_tests;
 pub const MILESTONE_ONE: i128 = 200_0000000;
 pub const MILESTONE_TWO: i128 = 400_0000000;
 pub const MILESTONE_THREE: i128 = 600_0000000;
+
+/// Compatibility contract for the shared test helpers in this module.
+///
+/// The helpers below are consumed by many suites and are treated as a stable
+/// test-only API. The following invariants MUST hold across refactors:
+///
+/// * `MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE == total_milestone_amount()`
+///   and `total_milestones()` is an exact alias of `total_milestone_amount()`.
+/// * `default_milestones(env)` always returns exactly those three amounts, in
+///   order, so `create_default_contract` / `create_contract` /
+///   `complete_contract*` all agree on the funded total.
+/// * `create_default_contract` and `create_contract` use
+///   `ReleaseAuthorization::ClientOnly` and a `None` arbiter; changing either
+///   silently breaks callers that assume client-only release.
+/// * `complete_contract_funded` and `complete_contract` drive a contract to
+///   `ContractStatus::Completed` by releasing every milestone index `0..3`;
+///   callers rely on the returned `(client, freelancer, contract_id)` tuple.
+/// * `assert_contract_error` only accepts the contract-level error variant
+///   (`Err(Ok(soroban_sdk::Error))`); host/VM errors are treated as failures so
+///   validation regressions cannot be masked as expected rejections.
+///
+/// Any change to these helpers must keep existing callers compiling and
+/// behaving identically, or ship a tested migration path in the same PR.
 
 /// A complete, test-only escrow fixture.
 ///
@@ -373,11 +401,6 @@ pub fn default_milestones(env: &Env) -> soroban_sdk::Vec<i128> {
 
 pub fn total_milestone_amount() -> i128 {
     MILESTONE_ONE + MILESTONE_TWO + MILESTONE_THREE
-}
-
-/// Alias used by tests that import `total_milestones` directly.
-pub fn total_milestones() -> i128 {
-    total_milestone_amount()
 }
 
 /// Generate a fresh (client, freelancer) address pair for a test.

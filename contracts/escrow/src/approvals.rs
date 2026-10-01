@@ -1,3 +1,4 @@
+//! Validation boundaries for milestone approvals.
 //! Temporary milestone approval storage and release authorization checks.
 //!
 //! This module owns the temporary
@@ -16,6 +17,50 @@ use crate::types::{
     ReleaseAuthorization, MAX_PAGINATION_LIMIT,
 };
 use soroban_sdk::{Address, Env, Vec};
+
+/// Validates the milestone index against the milestone vector length.
+///
+/// # Invariants
+/// - `milestone_index` must be strictly less than `milestones.len()`.
+/// - Zero-length milestone vectors reject every index.
+///
+/// # Errors
+/// * `IndexOutOfBounds` - If `milestone_index >= milestones.len()`.
+fn validate_milestone_index(milestones: &Vec<Milestone>, milestone_index: u32) -> Result<(), Error> {
+    if milestone_index >= milestones.len() {
+        return Err(Error::IndexOutOfBounds);
+    }
+    Ok(())
+}
+
+/// Validates that a contract is in a state that permits approval writes.
+///
+/// # Invariants
+/// - `Disputed` contracts are locked and reject all approval writes.
+/// - Only `Funded` and `PartiallyFunded` contracts accept approvals.
+///
+/// # Errors
+/// * `InvalidState` - If the contract is disputed or not in an approvable state.
+fn validate_approvable_state(contract: &Contract) -> Result<(), Error> {
+    if contract.status == ContractStatus::Disputed
+        || (contract.status != ContractStatus::Funded
+            && contract.status != ContractStatus::PartiallyFunded)
+    {
+        return Err(Error::InvalidState);
+    }
+    Ok(())
+}
+
+/// Validates that a milestone has not already been released.
+///
+/// # Errors
+/// * `MilestoneAlreadyReleased` - If the milestone was already released.
+fn validate_milestone_not_released(milestone: &Milestone) -> Result<(), Error> {
+    if milestone.released {
+        return Err(Error::MilestoneAlreadyReleased);
+    }
+    Ok(())
+}
 
 /// Approves a milestone for release by the caller.
 ///
@@ -62,12 +107,7 @@ pub fn approve_milestone(
     // fail closed until the arbiter resolves the dispute via the authorized
     // flow. This preserves the ordering guarantee that funds are never released
     // while a dispute is active.
-    if contract.status == ContractStatus::Disputed
-        || (contract.status != ContractStatus::Funded
-            && contract.status != ContractStatus::PartiallyFunded)
-    {
-        return Err(Error::InvalidState);
-    }
+    validate_approvable_state(&contract)?;
 
     // Load milestones
     let milestones: Vec<Milestone> = env
@@ -77,16 +117,12 @@ pub fn approve_milestone(
         .ok_or(Error::ContractNotFound)?;
 
     // Validate milestone index
-    if milestone_index >= milestones.len() {
-        return Err(Error::IndexOutOfBounds);
-    }
+    validate_milestone_index(&milestones, milestone_index)?;
 
     let milestone = milestones.get(milestone_index).unwrap();
 
     // Check if milestone is already released
-    if milestone.released {
-        return Err(Error::MilestoneAlreadyReleased);
-    }
+    validate_milestone_not_released(&milestone)?;
 
     // Determine caller role and check authorization
     let is_client = caller == &contract.client;
@@ -215,6 +251,75 @@ pub fn check_approvals(
     } else {
         Err(Error::InsufficientApprovals)
     }
+}
+
+/// Revokes the caller's own approval for a milestone.
+///
+/// Only the caller's flag is cleared. Other approvals remain intact; if no
+/// approval flags remain, the temporary record is removed.
+pub fn revoke_approval(
+    env: &Env,
+    contract_id: u32,
+    milestone_index: u32,
+    caller: &Address,
+) -> Result<bool, Error> {
+    let contract: Contract = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Contract(contract_id))
+        .ok_or(Error::ContractNotFound)?;
+
+    let milestones: Vec<Milestone> = env
+        .storage()
+        .persistent()
+        .get(&crate::ttl::milestone_storage_key(env, contract_id))
+        .ok_or(Error::ContractNotFound)?;
+
+    if milestone_index >= milestones.len() {
+        return Err(Error::IndexOutOfBounds);
+    }
+    if milestones.get(milestone_index).unwrap().released {
+        return Err(Error::MilestoneAlreadyReleased);
+    }
+
+    let is_client = caller == &contract.client;
+    let is_freelancer = caller == &contract.freelancer;
+    let is_arbiter = contract.arbiter.as_ref() == Some(caller);
+    if !is_client && !is_freelancer && !is_arbiter {
+        return Err(Error::UnauthorizedRole);
+    }
+
+    let approval_key = keys::milestone_approval_key(contract_id, milestone_index);
+    let mut approvals: MilestoneApprovals = env
+        .storage()
+        .temporary()
+        .get(&approval_key)
+        .ok_or(Error::InsufficientApprovals)?;
+
+    let caller_approved = if is_client {
+        &mut approvals.client_approved
+    } else if is_freelancer {
+        &mut approvals.freelancer_approved
+    } else {
+        &mut approvals.arbiter_approved
+    };
+    if !*caller_approved {
+        return Err(Error::InsufficientApprovals);
+    }
+    *caller_approved = false;
+
+    if !approvals.client_approved && !approvals.freelancer_approved && !approvals.arbiter_approved {
+        env.storage().temporary().remove(&approval_key);
+    } else {
+        env.storage().temporary().set(&approval_key, &approvals);
+        env.storage().temporary().extend_ttl(
+            &approval_key,
+            PENDING_APPROVAL_BUMP_THRESHOLD,
+            PENDING_APPROVAL_TTL_LEDGERS,
+        );
+    }
+
+    Ok(true)
 }
 
 /// Clears approval records for a milestone after successful release.
@@ -451,7 +556,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_duplicate_approval_rejected() {
         let env = Env::default();
         env.mock_all_auths();
@@ -502,6 +606,399 @@ mod tests {
             // Second approval fails
             let result = approve_milestone(&env, contract_id, 0, &client);
             assert_eq!(result, Err(Error::AlreadyApproved));
+        });
+    }
+
+    #[test]
+    fn test_approve_milestone_index_out_of_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            // Boundary: index == len is rejected
+            let result = approve_milestone(&env, contract_id, 1, &client);
+            assert_eq!(result, Err(Error::IndexOutOfBounds));
+
+            // Boundary: u32::MAX is rejected
+            let result = approve_milestone(&env, contract_id, u32::MAX, &client);
+            assert_eq!(result, Err(Error::IndexOutOfBounds));
+        });
+    }
+
+    #[test]
+    fn test_approve_milestone_rejects_disputed_contract() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Disputed,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            let result = approve_milestone(&env, contract_id, 0, &client);
+            assert_eq!(result, Err(Error::InvalidState));
+        });
+    }
+
+    #[test]
+    fn test_approve_milestone_rejects_released_milestone() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: true,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            let result = approve_milestone(&env, contract_id, 0, &client);
+            assert_eq!(result, Err(Error::MilestoneAlreadyReleased));
+        });
+    }
+
+    #[test]
+    fn test_approve_milestone_rejects_unauthorized_caller() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+        let stranger = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            let result = approve_milestone(&env, contract_id, 0, &stranger);
+            assert_eq!(result, Err(Error::UnauthorizedRole));
+        });
+    }
+
+    #[test]
+    fn test_approve_milestone_rejects_wrong_role_for_mode() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            // Freelancer is a participant but not authorized under ClientOnly
+            let result = approve_milestone(&env, contract_id, 0, &freelancer);
+            assert_eq!(result, Err(Error::UnauthorizedRole));
+        });
+    }
+
+    #[test]
+    fn test_check_approvals_missing_record_fails_closed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            let check = check_approvals(&env, &contract, contract_id, 0);
+            assert_eq!(check, Err(Error::InsufficientApprovals));
+        });
+    }
+
+    #[test]
+    fn test_clear_approvals_removes_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            assert!(approve_milestone(&env, contract_id, 0, &client).is_ok());
+            assert!(check_approvals(&env, &contract, contract_id, 0).is_ok());
+
+            clear_approvals(&env, contract_id, 0);
+
+            assert_eq!(
+                check_approvals(&env, &contract, contract_id, 0),
+                Err(Error::InsufficientApprovals)
+            );
+        });
+    }
+
+    #[test]
+    fn test_get_authorization_records_boundaries() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_address = env.register(crate::Escrow, ());
+
+        let client = crate::Address::generate(&env);
+        let freelancer = crate::Address::generate(&env);
+
+        let contract = Contract {
+            client: client.clone(),
+            freelancer: freelancer.clone(),
+            arbiter: None,
+            status: ContractStatus::Funded,
+            total_deposited: 1000,
+            funded_amount: 1000,
+            released_amount: 0,
+            refunded_amount: 0,
+            release_authorization: ReleaseAuthorization::ClientOnly,
+            reputation_issued: false,
+        };
+
+        let contract_id = 1u32;
+        env.as_contract(&contract_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Contract(contract_id), &contract);
+
+            let milestones = Vec::from_array(
+                &env,
+                [Milestone {
+                    amount: 1000,
+                    funded_amount: 0,
+                    released: false,
+                    refunded: false,
+                    work_evidence: None,
+                    refunded_amount: 0,
+                    deadline: None,
+                }],
+            );
+            let milestone_key = keys::milestone_key(&env, contract_id);
+            env.storage().persistent().set(&milestone_key, &milestones);
+
+            // limit == 0 returns empty
+            assert_eq!(get_authorization_records(&env, contract_id, 0, 0).len(), 0);
+
+            // start >= total returns empty
+            assert_eq!(get_authorization_records(&env, contract_id, 1, 10).len(), 0);
+            assert_eq!(
+                get_authorization_records(&env, contract_id, u32::MAX, 10).len(),
+                0
+            );
+
+            // limit capped by MAX_PAGINATION_LIMIT
+            let records = get_authorization_records(&env, contract_id, 0, u32::MAX);
+            assert_eq!(records.len(), 1);
+
+            // Unknown contract returns empty
+            assert_eq!(get_authorization_records(&env, 999u32, 0, 10).len(), 0);
         });
     }
 }
