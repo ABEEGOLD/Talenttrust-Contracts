@@ -1,173 +1,90 @@
 //! Centralized storage key definitions and constructors for escrow milestones.
 
-/// # State Invariants
+///
+/// # Deterministic Key Invariants
+///
+/// This module is the single source of truth for escrow storage keys
 
-/// This module owns the canonical construction of escrow storage keys. The
+/// and the invariants that make failure recovery deterministic:
+///
+/// 1. **Pure construction.** Every constructor in this module is a
+///    pure function of its arguments. The same logical identity always
 
-/// invariants it protects are:
+///    produces byte-for-byte identical keys, so a retry after a partial
 
-/// 1. **Determinism**: a given logical key always maps to the exact same
+///    failure addresses the same storage slot and cannot orphan data.
 
-///    concrete storage key tuple, regardless of call order or context.
+/// 2. **No aliasing.** Distinct logical identities map to distinct keys.
 
-/// 2. **No collisions**: distinct logical keys (different contract ids,
+///    The discriminating data is carried in the `DataKey` variant and
 
-///    different milestone indices, or different feature namespaces) must
+///    tuple arity, not in a flattened string, so different features
 
-///    produce distinct storage keys.
+///    (contracts, milestone approvals, releases, admin) cannot collide.
 
-/// 3. **Namespace separation**: milestone vectors and milestone
+/// 3. **Validated inputs.** Identifiers are normalized and validated
+///    before a key is built. Invalid inputs fail fast with a stable
+///    error code instead of silently producing a key that could collide
 
-///    approvals must never share a storage key, even when the contract id and
+///    with another logical entity.
 
-///    index coincide.
+/// 4. **Recoverable failures.** Construction never mutates storage and
+///    never panics on valid input. Callers can always retry with the
+
+///    same arguments and observe the same result.
 
 ///
-
-/// ## Failure modes
-
-/// The constructors are total and infallible: they do not panic, do not
-
-/// allocate arbitrary memory, and do not depend on external state. This
-
-/// means a retry or a concurrent call cannot observe a different key for the
-
-/// same logical identity. The only way a key can change is through a
-
-/// deleberate source change, which would be a breaking migration.
-
+/// # Error contract
 ///
+/// Invalid identifiers return `Error::InvalidIdentifier` (code 100). This
 
-/// ## Authorization
+/// code is stable and is part of the public API of this module.
 
-/// This module is purely deterministic and does not authorize anything.
-
-/// Authorization is enforced by the callers that use these keys. The
-
-/// invariant here is that the key for a given contract is derived only from
-
-/// the contract id and the feature namespace, never from caller-supplied
-
-/// authorization data.
-
-///
-
-/// ## Concurrency
-
-/// Since the constructors are pure functions of their arguments, two
-
-/// concurrent invocations with the same arguments produce equal keys.
-
-/// Soroban contract execution is single-threaded per invocation, but this
-
-/// guarantee holds even if the runtime changes.
-
-///
-
-/// ## Boundary cases
-
-/// `contract_id` and `milestone_index` are `uint32`, so the full range
-
-/// including `0` and `uint32::MAX` is valid and produces distinct keys.
-
-/// The constructors do not impose additional range restrictions; callers
-
-/// validate logical bounds (e.g. milestone index within the vector).
-
-///
-
-/// ## Regression guard
-
-/// The tests in `namespaced_keys_test.rs` assert determinism,
-
-/// non-collision, and namespace separation. Any change to the key shape
-
-/// must update those tests and include a migration plan.
-
- use soroban_sdk::{Env, Symbol};
+use soroban_sdk::{Env, Symbol};
 
 use crate::types::DataKey;
 
+/// Error code returned when a key constructor receives an invalid
+/// identifier. Kept stable across releases so off-chain tooling and
+/// retry logic can rely on it.
+pub const INVALID_IDENTIFIER_ERROR: u32 = 100;
+
+/// Maximum supported contract identifier. The escrow contract allocates
+
+/// contract ids from a monotonically increasing counter starting at 1, so
+/// 0 and values above this bound are always invalid.
+///
+/// The bound is chosen to be large enough for any realistic deployment
+
+/// while still rejecting obviously corrupt inputs (e.g. `u32::MAX` from a
+/// cast overflow).
+pub const MAX_CONTRACT_ID: u32 = u32::MAX - 1;
+
+/// Maximum supported milestone index within a contract. Milestones are
+
+/// addressed by a zero-based index and the escow layer limits the
+/// number of milestones per contract, so this bound is defensive.
+pub const MAX_MILESTONE_INDEX: u32 = u32::MAX - 1;
+
 /// Returns the persistent storage key tuple for a contract's milestones vector:
-
-/// `(DataKey::Contract(contract_id), Symbol::new(env, "milestones"))`.
-
+/// `(DataKey::Contract(contract_id), Symbol::new(env, "milestones")).
 ///
+/// # Errors
+/// Returns `Error::InvalidIdentifier` when `contract_id` is 0 or exceeds
 
-/// ## Invariants
-
-/// - The first element is always `DataKey::Contract(contract_id)`.
-
-/// - The second element is always the `milestones` symbol.
-
-/// - Two calls with the same `contract_id` produce equal keys.
-
-/// - Two calls with different `contract_id` produce distinct keys.
-
-///
-
-/// ## Panics
-
-/// This function does not panic.
-
-///
-
-/// ## Example
-
-/// ```
-
-/// # use crate::keys::milestone_key;
-
-/// # use soroban_sdk:Env;
-
-/// let env = Env::default();
-
-/// let key = milestone_key(&env, 42);
-
-/// ```
-
-pub fn milestone_key(env: &Env, contract_id: u32) -> (DataKey, Symbol) {
-
-    (DataKey::Contract(contract_id), milestone_symbol(env))
-
+/// `MAX_CONTRACT_ID`. The error is returned before any key materialization,
+/// so a failed call leaves no partial state behind.
+pub fn milestone_key(env: &Env, contract_id: u32) -> Result<(DataKey, Symbol), u32> {
+    validate_contract_id(contract_id)?;
+    Ok((DataKey::Contract(contract_id), milestone_symbol(env)))
 }
 
 /// Returns the `Symbol` key for milestones: `"milestones"`.
-
 ///
+/// The symbol is derived from a constant literal, so it is identical on every
+/// call and across all contract instances. This is what allows a retry after
 
-/// ## Invariants
-
-/// - The returned symbol is always the literal `"milestones"`.
-
-/// - The returned symbol is identical across all calls and environments.
-
-/// - The symbol is not derived from any external input, so it cannot be
-
-///   influenced by a caller.
-
-///
-
-/// ## Panics
-
-/// This function does not panic.
-
-///
-
-/// ## Example
-
-/// ```
-
-/// # use crate::keys::milestone_symbol;
-
-/// # use soroban_sdk::Env;
-
-/// let env = Env::default();
-
-/// let sym = milestone_symbol(&env);
-
-/// ```
-
+/// a partial failure to address the same storage slot.
 pub fn milestone_symbol(env: &Env) -> Symbol {
 
     Symbol::new(env, "milestones")
@@ -177,47 +94,62 @@ pub fn milestone_symbol(env: &Env) -> Symbol {
 /// Returns the temporary storage key for milestone release approvals:
 
 /// `DataKey::MilestoneApprovals(contract_id, milestone_index)`.
-
 ///
+/// # Errors
+/// Returns `Error::InvalidIdentifier` when `contract_id` is 0 or exceeds
 
-/// ## Invariants
+/// `MAX_CONTRACT_ID`, or when `milestone_index` exceeds `MAX_MILESTONE_INDEX`.
+/// Validation runs before construction so a rejected call never produces a
+/// key that could be written to storage.
+pub fn milestone_approval_key(contract_id: u32, milestone_index: u32) -> Result<DataKey, u32> {
+    validate_contract_id(contract_id)?;
+    validate_milestone_index(milestone_index)?;
+    Ok(DataKey::MilestomeApprovals(contract_id, milestone_index))
+}
 
-/// - The returned key is always `DataKey::MilestoneApprovals`, never another
-
-///   variant. This separates approvals from milestone vectors and from
-
-///   release flags.
-
-/// - Two calls with the same `(contract_id, milestone_index)` produce equal
-
-///   keys.
-
-/// - Two calls with different `contract_id` or different `milestone_index`
-
-///   produce distinct keys.
-
-/// - The key does not depend on authorization or on the caller.
-
+/// Returns the persistent storage key for a released milestone:
+/// `DataKey::MilestoneReleased(contract_id, milestone_index)`.
 ///
+/// # Errors
+/// Same validation as `milestone_approval_key`. Release markers are written
 
-/// ## Panics
+/// after funds are transferred, so a rejected key cannot leave a contract in
+/// a half-released state.
+pub fn milestone_released_key(contract_id: u32, milestone_index: u32) -> Result<DataKey, u32> {
+    validate_contract_id(contract_id)?;
+    validate_milestone_index(milestone_index)?;
+    Ok(DataKey::MilestoneReleased(contract_id, milestone_index))
+}
 
-/// This function does not panic.
-
+/// Returns the persistent storage key for a contract record:
+/// `DataKey::Contract(contract_id)`.
 ///
+/// # Errors
+/// Returns `Error::InvalidIdentifier` for an out-of-range contract id.
+pub fn contract_key(contract_id: u32) -> Result<DataKey, u32> {
+    validate_contract_id(contract_id)?;
+    Ok(DataKey::Contract(contract_id))
+}
 
-/// ## Example
+/// Validates a contract identifier.
+///
+/// A contract id is valid when it is non-zero and does not exceed
+/// `MAX_CONTRACT_ID``. The check is pure and has no side effects, so it is
+/// safe to call on every retry.
+pub fn validate_contract_id(contract_id: u32) -> Result<(), u32> {
+    if contract_id == 0 || contract_id > MAX_CONTRACT_ID {
+        return Err(INVALID_IDENTIFIER_ERROR);
+    }
+    Ok(()
+}
 
-/// ```
-
-/// # use crate::keys::milestone_approval_key;
-
-/// let key = milestone_approval_key(10, 2);
-
-/// ```
-
-pub fn milestone_approval_key(contract_id: u32, milestone_index: u32) -> DataKey {
-
-    DataKey::MilestoneApprovals(contract_id, milestone_index)
-
+/// Validates a milestone index.
+///
+/// A milestone index is valid when it does not exceed `MAX_MILESTONE_INDEX`.
+/// Index 0 refers to the first milestone and is therefore valid.
+pub fn validate_milestone_index(milestone_index: u32) -> Result<(), u32> {
+    if milestone_index > MAX_MILESTONE_INDEX {
+        return Err(INVALID_IDENTIFIER_ERROR);
+    }
+    Ok(())
 }
