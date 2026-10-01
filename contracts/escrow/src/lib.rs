@@ -72,6 +72,7 @@ mod authorization;
 mod constants;
 mod contracts;
 mod create_contract;
+mod create_contract_guard;
 mod deposit;
 mod dispute;
 mod events;
@@ -205,6 +206,27 @@ impl Escrow {
             .persistent()
             .get(&DataKey::MaxSettlement)
             .unwrap_or(DEFAULT_MAX_BATCH_SETTLEMENT)
+    }
+
+    // Acquire the contract-creation guard for the current ledger sequence.
+    //
+    // Contract creation allocates a monotonically increasing `NextContractId`
+    // and writes the new `Contract(id)` plus its milestone vector.  Concurrent
+    // or replayed invocations within the same ledger must not observe a stale
+    // `NextContractId` or interleave partial writes.  This helper records the
+    // ledger sequence at which creation began so a second invocation in the
+    // same ledger is rejected deterministically with `ContractCreationInProgress`
+    // instead of racing on storage.
+    pub(crate) fn begin_contract_creation(env: &Env) -> Result<(), Error> {
+        create_contract_guard::begin(env)
+    }
+
+    // Release the contract-creation guard after the new contract and its
+    // milestones have been fully persisted.  Must be called on every success
+    // path; failure paths leave the guard in place so the ledger-scoped
+    // rejection remains effective until the next ledger.
+    pub(crate) fn end_contract_creation(env: &Env) {
+        create_contract_guard::end(env)
     }
 }
 

@@ -173,8 +173,7 @@ pub(crate) fn load_milestones_recoverable(
 /// - `ContractNotFound` if `contract_id == 0`
 pub(crate) fn validate_contract_id_bounds(env: &Env, contract_id: u32) {
     if contract_id == 0 {
-        // Zero is reserved as an invalid sentinel; surface as ContractNotFound.
-        env.panic_with_error(EscrowError::ContractNotFound);
+        env.panic_with_error(Error::InvalidContractId);
     }
 }
 
