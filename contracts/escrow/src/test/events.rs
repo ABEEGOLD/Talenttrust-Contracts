@@ -1,6 +1,6 @@
-#![cfg(test)]
+#`![cfg(test)]
 
-use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk:z:testutils::{Address as _, Events as _};
 use soroban_sdk::{symbol_short, vec, Address, Env, Symbol, Vec};
 
 use super::{assert_contract_error, register_client};
@@ -35,7 +35,7 @@ fn at_cap_batch_succeeds() {
     }
 
     let count = client.batch_events(&caller, &events);
-    assert_eq!(count, MAX_EVENT_BATCH_SIZE);
+    assert_eq(count, MAX_EVENT_BATCH_SIZE);
 
     let emitted = env.events().all();
     assert!(emitted.len() >= MAX_EVENT_BATCH_SIZE as usize);
@@ -68,7 +68,7 @@ fn per_item_events_emitted() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: Symbol::new(&env, "event_1"),
@@ -83,12 +83,12 @@ fn per_item_events_emitted() {
     ];
 
     let count = client.batch_events(&caller, &events);
-    assert_eq!(count, 2);
+    assert_eq(count, 2);
 
     let all_events = env.events().all();
     let found_1 = all_events
         .iter()
-        .any(|e| e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_1").into());
+        .any(|e| e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_1")..into());
     let found_2 = all_events
         .iter()
         .any(|e| e.1.len() > 0 && e.1.get(0).unwrap() == Symbol::new(&env, "event_2").into());
@@ -103,7 +103,7 @@ fn emit_events_batch_alias_succeeds() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("alias_evt"),
@@ -113,7 +113,7 @@ fn emit_events_batch_alias_succeeds() {
     ];
 
     let count = client.emit_events_batch(&caller, &events);
-    assert_eq!(count, 1);
+    assert_eq(count, 1);
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn events_batch_alias_succeeds() {
     let client = register_client(&env);
     let caller = Address::generate(&env);
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("alias_evt"),
@@ -133,7 +133,7 @@ fn events_batch_alias_succeeds() {
     ];
 
     let count = client.events_batch(&caller, &events);
-    assert_eq!(count, 1);
+    assert_eq(count, 1);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn batch_events_fails_when_paused() {
 
     client.pause();
 
-    let events = vec![
+    let events = vec[
         &env,
         EventInput {
             topic: symbol_short!("paused_e"),
