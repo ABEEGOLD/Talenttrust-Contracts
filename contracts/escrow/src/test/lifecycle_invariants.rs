@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 //! Lifecycle invariant tests for the TalentTrust escrow contract.
 //!
 //! These tests verify that deposits, releases, refunds, and balances reconcile
